@@ -9,12 +9,11 @@
  *
  * @todo allow setting more curl options: keepalive (k), http 1.0 vs 1.1
  * @todo verify if we do proper curl error checking
- * @todo parse more stats from children (same format as ab does)
+ * @todo parse more stats from children (same format as ab does), eg. print min, max, resp. times
  * @todo check if our calculation methods are the same as used by ab
  * @todo add some nice graph output, as eg. abgraph does
  * @todo !important raise php timeout if run() is called not from cli
  * @todo !important allow an option to be set to run the code in "tool" mode:
- *       - avoid calling exit()
  *       - avoid calling echo directly
  *       - etc...
  */
@@ -36,9 +35,8 @@ if ( !defined( 'EZAB_AS_LIB' ) )
     else
     {
         // parse options in array format (die with help msg if needed)
-        $ab->parseOpts( $_GET, eZAB::$defaults /*array_merge( eZAB::$defaults , array( 'self', __FILE__ ) )*/ );
+        $ab->parseOpts( $_GET, eZAB::$defaults );
     }
-
     // will run in either parent or child mode, depending on parsed options
     $ab->run();
 }
@@ -81,7 +79,7 @@ class eZAB
         if ( @$this->opts['target'] == '' )
         {
             self::helpMsg( basename( __FILE__ ) );
-            exit( 1 );
+            self::abort( 1 );
         }
 
         if ( $this->opts['clientnr'] === false )
@@ -112,7 +110,7 @@ class eZAB
 
         $this->echoMsg( "Benchmarking {$opts['target']} (please be patient)...\n" );
 
-        /// @todo !important move cli reconstruction to a separate function
+        /// @todo !important move cli opts reconstruction to a separate function
         $args = "-n $client_tries -t " . escapeshellarg( $opts['timeout'] );
         if ( $opts['auth'] != '' )
         {
@@ -206,7 +204,7 @@ class eZAB
         // print results
 
         // != from ab output
-        $this->echoMsg( "\nResults:\n----------------------------------------\n", 2 );
+        $this->echoMsg( "\nChildren output:\n----------------------------------------\n", 2 );
         for ( $i = 0; $i < $opts['clients']; $i++ )
         {
             /// @todo beautify
@@ -221,16 +219,15 @@ class eZAB
         {
             if ( $res['return'] != 0 || $res['output'] == '' )
             {
-                echo "Child process $i did not terminate correctly. Exiting";
-                exit( 1 );
+                self::abort( 1, "Child process $i did not terminate correctly. Exiting" );
             }
             $outputs[] = $res['output'];
         }
         $data = $this->parseOutputs( $outputs );
 
-        $this->echoMsg( "\nTotals:\n----------------------------------------\n", 2 );
-
         $this->echoMsg( "\n\n" );
+
+        $this->echoMsg( "\nSummary:\n----------------------------------------\n", 2 );
 
         $sizes = array_keys( $data['sizes'] );
         $url = parse_url( $opts['target'] );
@@ -468,14 +465,12 @@ class eZAB
                 $input = readline( 'Enter path to PHP-CLI executable ( or [q] to quit )' );
                 if ( $input === 'q' )
                 {
-                    exit();
+                    self::abort();
                 }
             }
             else
             {
-                echo "Can not run php subprocesses (executable: " . htmlspecialchars( $php ). ")\n";
-                self::helpMsg( basename( __FILE__ ) );
-                exit( 1 );
+                self::abort( 1, "Can not run php subprocesses (executable: $php)" );
             }
         } while( true );
     }
@@ -507,7 +502,7 @@ class eZAB
         {
             echo "ab: wrong number of arguments\n";
             self::helpMsg( @$argv[0] );
-            exit( 1 );
+            self::abort( 1 );
         }
 
         $opts = $defaults;
@@ -534,7 +529,7 @@ class eZAB
                 {
                     // unknown option
                     self::helpmsg( $argv[0] );
-                    exit( 1 );
+                    self::abort( 1 );
                 }
 
                 if ( $val === null && !in_array( $opt, $singleoptions ) )
@@ -544,7 +539,7 @@ class eZAB
                     {
                         // two options in a row: error
                         self::helpMsg( $argv[0] );
-                        exit( 1 );
+                        self::abort( 1 );
                     }
                     $i++;
                 }
@@ -554,10 +549,10 @@ class eZAB
                     case 'h':
                     case 'help':
                         self::helpMsg( $argv[0] );
-                        exit();
+                        self::abort();
                     case 'V':
                         self::versionMsg();
-                        exit();
+                        self::abort();
                     case 'client':
                         $opts['clientnr'] = $val;
                         break;
@@ -590,7 +585,7 @@ class eZAB
                         break;
                     default:
                         self::helpMsg( $argv[0] );
-                        exit( 1 );
+                        self::abort( 1 );
                 }
             }
             else
@@ -608,12 +603,12 @@ class eZAB
         if ( @$opts['h'] || @$opts['help'] )
         {
             self::helpmsg( dirname( __FILE__ ) );
-            exit( 0 );
+            self::abort();
         }
         if ( @$opts['V'] )
         {
             self::versionMsg();
-            exit( 0 );
+            self::abort();
         }
         foreach( $opts as $key => $val )
         {
@@ -711,6 +706,21 @@ class eZAB
         if ( php_sapi_name() != 'cli' ) echo '</pre>';
     }
 
+    /**
+     * Either exits or throws ane xception
+     */
+    static protected function abort( $errcode=1, $msg='' )
+    {
+        if ( !defined( 'EZAB_AS_LIB' ) )
+        {
+            echo ( php_sapi_name() == 'cli' ) ? htmlspecialchars( $msg ) : $msg;
+            exit( $errcode );
+        }
+        else
+        {
+            throw new Exception( $msg, $errcode );
+        }
+    }
 }
 
 ?>
