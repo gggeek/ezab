@@ -15,14 +15,14 @@
  * your app and use it as a plain php class, by defining the EZAB_AS_LIB constant
  * before including this file.
  *
- * @todo allow setting more curl options: keepalive (k), http 1.0 vs 1.1
- * @todo verify if we do proper curl error checking
- * @todo parse more stats from children (same format as ab does), eg. print min, max, resp. times
- * @todo check if our calculation methods are the same as used by ab
+ * @todo allow setting more curl options: timeouts, keepalive (k), http 1.0 vs 1.1, resp. compression
+ * @todo verify if we do proper curl error checking for all cases (404 tested)
+ * @todo parse more stats from children (same format as ab does), eg. print min, max, resp. times, connect times etc...
+ * @todo check if all our calculation methods are the same as used by ab
  * @todo add some nice graph output, as eg. abgraph does
  * @todo !important raise php timeout if run() is called not from cli
  * @todo !important allow an option to be set to run the code in "tool" mode:
- *       - avoid calling echo directly
+ *       - avoid calling echo directly with runParent and ParseXxx
  *       - etc...
  * @todo !important in web mode, display a form to be filled by user that triggers the request
  */
@@ -71,7 +71,7 @@ class eZAB
         'php' => 'php',
         'outputformat' => 'text',
         'haltonerrors' => true,
-        'mode' => 'parent' // allowed: 'help', 'version', 'parent', 'child'
+        'command' => 'runparent' // allowed: 'helpmsg', 'versionmsg', 'runparent', 'runchild'
     );
     // config options for this instance
     protected $opts = array();
@@ -89,20 +89,20 @@ class eZAB
      */
     public function run()
     {
-        switch ( $this->opts['mode'] )
+        switch ( $this->opts['command'] )
         {
-            case 'parent':
+            case 'runparent':
                 return $this->runParent();
-            case 'child':
-                return $this->runChild();
-            case 'version':
+            case 'runchild':
+                echo $this->runChild();
+            case 'versionmsg':
                 echo $this->versionMsg();
                 break;
-            case 'help':
+            case 'helpmsg':
                 echo $this->helpMsg();
                 break;
             default:
-                $this->abort( 1 , 'Unkown running mode: ' . $this->opts['mode'] );
+                $this->abort( 1 , 'Unkown running mode: ' . $this->opts['command'] );
         }
     }
 
@@ -269,30 +269,36 @@ class eZAB
             "Server Port:            {$url['port']}\n" .
             "\n" .
             "Document Path:          {$url['path']}\n" .
-            "Document Length:        " . reset( $sizes ) . "\n" .
+            "Document Length:        " . reset( $sizes ) . " bytes\n" .
             "\n" .
             "Concurrency Level:      {$opts['children']}\n" .
             "Time taken for tests:   " . sprintf( '%.3f', $data['tot_time'] ) . " seconds\n" .
             "Complete requests:      {$data['tries']}\n" . // same as AB: includes failures
             "Failed requests:        {$data['failures']}\n" .
-            "Write errors:           [NA]\n" .
-            "Non-2xx responses:      [NA]\n" .
-            "Total transferred:      " . "[NA]" /*{$data['tot_bytes']}*/ . " bytes\n" .
+            "Write errors:           {$data['write_errors']}\n" .
+            "Non-2xx responses:      {$data['non_2xx']}\n" .
+            "Total transferred:      {$data['tot_bytes']} bytes\n" .
             "HTML transferred:       {$data['html_bytes']} bytes\n" . // NB: includes failures
             "Requests per second:    " . sprintf( '%.2f', $data['rps'] ) . " [#/sec] (mean)\n" . // NB: includes failures
             "Time per request:       " . sprintf( '%.3f', $data['t_avg'] * 1000 ) . " [ms] (mean)\n" . // NB: excludes failures
             "Time per request:       [NA] [ms] (mean, across all concurrent requests)\n" .
-            "Transfer rate:          " . "[NA]" /*sprintf( '%.2f', $data['tot_bytes'] / ( 1024 * $data['tot_time'] ) )*/ . " [Kbytes/sec] received\n"
+            "Transfer rate:          " . sprintf( '%.2f', $data['tot_bytes'] / ( 1024 * $data['tot_time'] ) ) . " [Kbytes/sec] received\n"
         );
 
     }
 
+    /**
+    * Executes the http requests, returns a csv string with the collected data
+    * @retrun string
+    */
     public function runChild()
     {
         $opts = $this->opts;
         $resp = array(
             'tries' => $opts['tries'],
             'failures' => 0, // nr of reqs
+            'non_2xx' => 0,
+            'write_errors' => 0,
             'tot_time' => 0.0, // secs (float) - time spent executing calls
             'tot_bytes' => 0.0, // bytes (float) - total resp. sizes
             'html_bytes' => 0.0, // bytes (float) - total resp. sizes
@@ -308,7 +314,9 @@ class eZAB
         $curl = curl_init( $opts['target'] );
         if ( $curl )
         {
-            curl_setopt( $curl, CURLOPT_RETURNTRANSFER, 1 );
+            curl_setopt( $curl, CURLOPT_RETURNTRANSFER, true );
+            // enbale receiving header too. We will need later to split by ourselves headers from body to calculate correct sizes
+            curl_setopt( $curl, CURLOPT_HEADER, true );
             curl_setopt( $curl, CURLOPT_USERAGENT, "eZAB " . self::$version );
             if ( $opts['timeout'] > 0 )
             {
@@ -349,10 +357,23 @@ class eZAB
                 }
                 else
                 {
-                    $size = strlen( $result );
+                    $info = curl_getinfo( $curl );
+                    if ( (int) ( $info['http_code'] / 100 ) != 2 )
+                    {
+                        $resp['non_2xx']++;
+                    }
+                    /// @todo check if AB has other cases that this one counted as "write error"
+                    /// @see http://www.php.net/manual/en/function.curl-errno.php
+                    if ( curl_errno( $curl ) == 23 )
+                    {
+                        $resp['write_errors']++;
+                    }
+                    $tot_size = strlen( $result );
+                    $html_size =  $info['size_download'];
                     /// @todo if resp. size changes, by default it should be flagged as error (unless option specified)
-                    $resp['sizes'][$size] = isset( $resp['sizes'][$size] ) ? ( $resp['sizes'][$size] + 1 ) : 1;
-                    $resp['html_bytes'] += (float)$size;
+                    $resp['sizes'][$html_size] = isset( $resp['sizes'][$html_size] ) ? ( $resp['sizes'][$html_size] + 1 ) : 1;
+                    $resp['html_bytes'] += (float)$html_size;
+                    $resp['tot_bytes'] += (float)$tot_size;
                 }
                 if ( $i == 0 )
                 {
@@ -394,7 +415,7 @@ class eZAB
         {
             $resp[$key] = $key . ':' . $val;
         }
-        echo implode( ';', $resp );
+        return implode( ';', $resp );
     }
 
     /**
@@ -405,6 +426,8 @@ class eZAB
         $resp = array(
             'tries' => 0,
             'failures' => 0, // nr of reqs
+            'non_2xx' => 0,
+            'write_errors' => 0,
             'tot_time' => 0.0, // secs (float) - time spent executing calls
             'tot_bytes' => 0.0, // bytes (float) - total resp. sizes
             'html_bytes' => 0.0, // bytes (float) - total resp. sizes
@@ -432,6 +455,8 @@ class eZAB
 
             $resp['tries'] += $data['tries'];
             $resp['failures'] += $data['failures'];
+            $resp['non_2xx'] += $data['non_2xx'];
+            $resp['write_errors'] += $data['write_errors'];
             if ( $resp['begin'] == -1 || $resp['begin'] > $data['begin'] )
             {
                 $resp['begin'] = $data['begin'];
@@ -574,14 +599,14 @@ class eZAB
                 {
                     case 'h':
                     case 'help':
-                        $this->opts['mode'] = 'help';
+                        $this->opts['command'] = 'helpmsg';
                         return;
                     case 'V':
-                        $this->opts['mode'] = 'version';
+                        $this->opts['command'] = 'versionmsg';
                         return;
                     case 'child':
                         $opts['childnr'] = $val;
-                        $opts['mode'] = 'child';
+                        $opts['command'] = 'child';
                         break;
                     case 'php':
                         $opts['php'] = $val;
@@ -634,12 +659,12 @@ class eZAB
     {
         if ( @$opts['h'] || @$opts['help'] )
         {
-            $this->opts['mode'] = 'help';
+            $this->opts['command'] = 'helpmsg';
             return;
         }
         if ( @$opts['V'] )
         {
-            $this->opts['mode'] = 'version';
+            $this->opts['command'] = 'versionmsg';
             return;
         }
         foreach( $opts as $key => $val )
@@ -648,7 +673,7 @@ class eZAB
             {
                 case 'child':
                     $opts['childnr'] = $val;
-                    $opts['mode'] = 'child';
+                    $opts['command'] = 'runchild';
                     unset( $opts[$key] );
                     break;
                 case 'c':
