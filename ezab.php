@@ -1,11 +1,19 @@
 #!/usr/bin/env php
 <?php
 /**
- * ezab.php: same as Apache Bench tool, but in php
+ * ezab.php: same as Apache Bench tool, but in php.
  *
  * @author G. Giunta
  * @license GNU GPL 2.0
  * @copyright (C) G. Giunta 2010-2012
+ *
+ * It uses curl for executing the http requests.
+ * It uses a multi-process scheme (tested to be working both on windows and linux):
+ * you will need php-cli installed for this to work.
+ * It can be run both as command-line script and as web page.
+ * It defaults to executing immediately, but you can actually include() it from
+ * your app and use it as a plain php class, by defining the EZAB_AS_LIB constant
+ * before including this file.
  *
  * @todo allow setting more curl options: keepalive (k), http 1.0 vs 1.1
  * @todo verify if we do proper curl error checking
@@ -16,6 +24,7 @@
  * @todo !important allow an option to be set to run the code in "tool" mode:
  *       - avoid calling echo directly
  *       - etc...
+ * @todo !important in web mode, display a form to be filled by user that triggers the request
  */
 
 if ( !defined( 'EZAB_AS_LIB' ) )
@@ -30,12 +39,12 @@ if ( !defined( 'EZAB_AS_LIB' ) )
     if ( php_sapi_name() == 'cli' )
     {
         // parse cli options (die with help msg if needed)
-        $ab->parseArgs( $argv, eZAB::$defaults );
+        $ab->parseArgs( $argv );
     }
     else
     {
         // parse options in array format (die with help msg if needed)
-        $ab->parseOpts( $_GET, eZAB::$defaults );
+        $ab->parseOpts( $_GET );
     }
     // will run in either parent or child mode, depending on parsed options
     $ab->run();
@@ -47,7 +56,7 @@ class eZAB
     static $defaults = array(
         // 'real' options
         'verbosity' => 1, // -v verbosity    How much troubleshooting info to print
-        'clients' => 1, // -c concurrency  Number of multiple requests to make
+        'children' => 1, // -c concurrency  Number of multiple requests to make
         'tries' => 1, // -n requests     Number of requests to perform
         'timeout' => 0, // -t timelimit    Seconds to max. wait for responses
         'auth' => false,
@@ -56,39 +65,44 @@ class eZAB
         'target' => '',
         'keepalive' => false,
         // 'internal' options
-        // client mode
-        'clientnr' => false,
+        'childnr' => false,
         // the actual script path (self)
         'self' => __FILE__,
         'php' => 'php',
+        'outputformat' => 'text',
+        'haltonerrors' => true,
+        'mode' => 'parent' // allowed: 'help', 'version', 'parent', 'child'
     );
     // config options for this instance
     protected $opts = array();
 
     function __construct( $opts = array() )
     {
-        $this->opts = array_merge( self::$defaults, $opts );
+        $this->opts = self::$defaults;
+        $this->opts['outputformat'] = ( php_sapi_name() == 'cli' ) ? 'text' : 'html';
+        $this->opts['haltonerrors'] = !defined( 'EZAB_AS_LIB' );
+        $this->opts = array_merge( $this->opts, $opts );
     }
 
     /**
-     * Actual execution of the test. depending on options, calls runparent or runchild
+     * Actual execution of the test. Depending on options, calls runParent or runChild
      */
     public function run()
     {
-        // mandatory option
-        if ( @$this->opts['target'] == '' )
+        switch ( $this->opts['mode'] )
         {
-            self::helpMsg( basename( __FILE__ ) );
-            self::abort( 1 );
-        }
-
-        if ( $this->opts['clientnr'] === false )
-        {
-            return $this->runParent();
-        }
-        else
-        {
-            return $this->runChild();
+            case 'parent':
+                return $this->runParent();
+            case 'child':
+                return $this->runChild();
+            case 'version':
+                echo $this->versionMsg();
+                break;
+            case 'help':
+                echo $this->helpMsg();
+                break;
+            default:
+                $this->abort( 1 , 'Unkown running mode: ' . $this->opts['mode'] );
         }
     }
 
@@ -96,22 +110,29 @@ class eZAB
     {
         $opts = $this->opts;
 
-        $this::versionMsg();
+        // mandatory option
+        if ( $opts['target'] == '' )
+        {
+            echo $this->helpMsg();
+            $this->abort( 1 );
+        }
+
+        echo $this->versionMsg();
 
         /// @todo shall we do exactly $opts['tries'] tests, making last thread execute more?
-        $client_tries = (int) ( $opts['tries'] / $opts['clients'] );
-        $php = self::getPHPExecutable( $opts['php'] );
+        $child_tries = (int) ( $opts['tries'] / $opts['children'] );
+        $php = $this->getPHPExecutable( $opts['php'] );
 
-        if ( php_sapi_name() != 'cli' ) echo '<pre>';
-
-        // != from ab output
-        $this->echoMsg( "\nRunning {$opts['tries']} requests with {$opts['clients']} paralel clients\n", 2 );
-        $this->echoMsg( "----------------------------------------\n", 2 );
+        if ( $this->opts['outputformat'] == 'html' ) echo '<pre>';
 
         $this->echoMsg( "Benchmarking {$opts['target']} (please be patient)...\n" );
 
+        // != from ab output
+        $this->echoMsg( "\nRunning {$opts['tries']} requests with {$opts['children']} parallel processes\n", 2 );
+        $this->echoMsg( "----------------------------------------\n", 2 );
+
         /// @todo !important move cli opts reconstruction to a separate function
-        $args = "-n $client_tries -t " . escapeshellarg( $opts['timeout'] );
+        $args = "-n $child_tries -t " . escapeshellarg( $opts['timeout'] );
         if ( $opts['auth'] != '' )
         {
             $args .= " -A " . escapeshellarg( $opts['auth'] );
@@ -137,10 +158,10 @@ class eZAB
 
         //$time = microtime( true );
 
-        // start clients
-        for ( $i = 0; $i < $opts['clients']; $i++ )
+        // start children
+        for ( $i = 0; $i < $opts['children']; $i++ )
         {
-            $exec = escapeshellcmd( $php ) . " " . escapeshellarg( $opts['self'] ) . " --client $i " . $args;
+            $exec = escapeshellcmd( $php ) . " " . escapeshellarg( $opts['self'] ) . " --child $i " . $args;
 
             //$starttimes[$i] = microtime( true );
 
@@ -154,14 +175,17 @@ class eZAB
 
             if ( !$childprocs[$i] )
             {
-                /// @todo kill all open children, exit!
+                /// @todo kill all open children, exit
+
+                // before using this line test that other children are terminated ok...
+                //$this->abort( 1, "Child process $i did not start correctly. Exiting" );
             }
 
-            $this->echoMsg( "Launched client $i [ $exec ]\n", 2 );
+            $this->echoMsg( "Launched child $i [ $exec ]\n", 2 );
             flush();
         }
 
-        // wait for all clients to finish
+        // wait for all children to finish
         /// @todo add a global timeout limit?
         $finished = 0;
         $outputs = array();
@@ -170,7 +194,7 @@ class eZAB
             /// @todo !important lower this - use usleep
             sleep( 1 );
 
-            for ( $i = 0; $i < $opts['clients']; $i++ )
+            for ( $i = 0; $i < $opts['children']; $i++ )
             {
                 if ( $childprocs[$i] !== false )
                 {
@@ -195,7 +219,7 @@ class eZAB
             $this->echoMsg( "." );
             flush();
 
-        } while( $finished < $opts['clients'] );
+        } while( $finished < $opts['children'] );
 
         //$time = microtime( true ) - $time;
 
@@ -205,7 +229,7 @@ class eZAB
 
         // != from ab output
         $this->echoMsg( "\nChildren output:\n----------------------------------------\n", 2 );
-        for ( $i = 0; $i < $opts['clients']; $i++ )
+        for ( $i = 0; $i < $opts['children']; $i++ )
         {
             /// @todo beautify
             $this->echoMsg( $childresults[$i]['output'] . "\n", 2 );
@@ -219,7 +243,7 @@ class eZAB
         {
             if ( $res['return'] != 0 || $res['output'] == '' )
             {
-                self::abort( 1, "Child process $i did not terminate correctly. Exiting" );
+                $this->abort( 1, "Child process $i did not terminate correctly. Exiting" );
             }
             $outputs[] = $res['output'];
         }
@@ -247,7 +271,7 @@ class eZAB
             "Document Path:          {$url['path']}\n" .
             "Document Length:        " . reset( $sizes ) . "\n" .
             "\n" .
-            "Concurrency Level:      {$opts['clients']}\n" .
+            "Concurrency Level:      {$opts['children']}\n" .
             "Time taken for tests:   " . sprintf( '%.3f', $data['tot_time'] ) . " seconds\n" .
             "Complete requests:      {$data['tries']}\n" . // same as AB: includes failures
             "Failed requests:        {$data['failures']}\n" .
@@ -364,7 +388,7 @@ class eZAB
         {
             $resp['sizes'][$size] = $size . '-' . $count;
         }
-        $resp['sizes'] = implode( '/', $resp['sizes']);
+        $resp['sizes'] = implode( '/', $resp['sizes'] );
 
         foreach( $resp as $key => $val )
         {
@@ -449,7 +473,7 @@ class eZAB
         return $resp;
     }
 
-    protected static function getPHPExecutable( $php='php' )
+    protected function getPHPExecutable( $php='php' )
     {
         $validExecutable = false;
         do
@@ -465,28 +489,27 @@ class eZAB
                 $input = readline( 'Enter path to PHP-CLI executable ( or [q] to quit )' );
                 if ( $input === 'q' )
                 {
-                    self::abort();
+                    $this->abort( 0 );
                 }
             }
             else
             {
-                self::abort( 1, "Can not run php subprocesses (executable: $php)" );
+                $this->abort( 1, "Can not run php subprocesses (executable: $php)" );
             }
         } while( true );
     }
 
     /**
-     * Parses args (stores them and returns them as well).
-     * If any unknown option is found, prints help msg and exit
-     * @return array the parsed options
-     * @todo add support for no-arg options options
+     * Parses args in argc/argv format (stores them, unless -h or -V are found, in which case only $this->opts['self'] is set)
+     * If any unknown option is found, prints help msg and exit.
+     * Nb: pre-existing otions are not reset by this call.
      */
-    public function parseArgs( $argv, $defaults = array() )
+    public function parseArgs( $argv )
     {
-        $singleoptions = array( 'k', 'h', 'help', 'V' );
         $options = array(
-            'h', 'help', 'V', 'client', 'php', 'c', 'n', 't', 'v', 'A', 'P', 'X'
+            'h', 'help', 'V', 'child', 'php', 'c', 'n', 't', 'v', 'A', 'P', 'X'
         );
+        $singleoptions = array( 'k', 'h', 'help', 'V' );
 
         $longoptions = array();
         foreach( $options as $o )
@@ -501,12 +524,15 @@ class eZAB
         if ( $argc < 2 )
         {
             echo "ab: wrong number of arguments\n";
-            self::helpMsg( @$argv[0] );
-            self::abort( 1 );
+            echo $this->helpMsg( @$argv[0] );
+            $this->abort( 1 );
         }
 
-        $opts = $defaults;
-        $opts['self'] = $argv[0];
+        // symlinks, etc... trust $argv[0] better than __FILE__
+        $this->opts['self'] = @$argv[0];
+
+        // this->opts has already been initialized by constructor
+        $opts = $this->opts;
 
         for ( $i = 1; $i < $argc; $i++ )
         {
@@ -515,7 +541,7 @@ class eZAB
                 $opt = ltrim( $argv[$i], '-' );
                 $val = null;
 
-                /// @todo we should alos allow long options with no space between opt and val
+                /// @todo we should also allow long options with no space between opt and val
                 if ( !in_array( $opt, $longoptions ) )
                 {
                     if ( strlen( $opt ) > 1 )
@@ -528,8 +554,8 @@ class eZAB
                 if ( !in_array( $opt, $options ) )
                 {
                     // unknown option
-                    self::helpmsg( $argv[0] );
-                    self::abort( 1 );
+                    echo $this->helpMsg();
+                    $this->abort( 1 );
                 }
 
                 if ( $val === null && !in_array( $opt, $singleoptions ) )
@@ -538,8 +564,8 @@ class eZAB
                     if ( $val[0] == '-' )
                     {
                         // two options in a row: error
-                        self::helpMsg( $argv[0] );
-                        self::abort( 1 );
+                        echo $this->helpMsg();
+                        $this->abort( 1 );
                     }
                     $i++;
                 }
@@ -548,19 +574,20 @@ class eZAB
                 {
                     case 'h':
                     case 'help':
-                        self::helpMsg( $argv[0] );
-                        self::abort();
+                        $this->opts['mode'] = 'help';
+                        return;
                     case 'V':
-                        self::versionMsg();
-                        self::abort();
-                    case 'client':
-                        $opts['clientnr'] = $val;
+                        $this->opts['mode'] = 'version';
+                        return;
+                    case 'child':
+                        $opts['childnr'] = $val;
+                        $opts['mode'] = 'child';
                         break;
                     case 'php':
                         $opts['php'] = $val;
                         break;
                     case 'c':
-                        $opts['clients'] = (int)$val > 0 ? (int)$val : 1;
+                        $opts['children'] = (int)$val > 0 ? (int)$val : 1;
                         break;
                     case 'n':
                         $opts['tries'] = (int)$val > 0 ? (int)$val : 1;
@@ -584,8 +611,9 @@ class eZAB
                         $opts['proxy'] = $val;
                         break;
                     default:
-                        self::helpMsg( $argv[0] );
-                        self::abort( 1 );
+                        // unknown option
+                        echo $this->helpMsg();
+                        $this->abort( 1 );
                 }
             }
             else
@@ -595,125 +623,154 @@ class eZAB
             }
         }
         $this->opts = $opts;
-        return $opts;
     }
 
-    public function parseOpts( $opts, $defaults = array() )
+    /**
+     * Parses args in array format (stores them, unless -h or -V are found)
+     * If any unknown option is found, continues.
+     * Nb: pre-existing options are not reset by this call.
+     */
+    public function parseOpts( $opts )
     {
         if ( @$opts['h'] || @$opts['help'] )
         {
-            self::helpmsg( dirname( __FILE__ ) );
-            self::abort();
+            $this->opts['mode'] = 'help';
+            return;
         }
         if ( @$opts['V'] )
         {
-            self::versionMsg();
-            self::abort();
+            $this->opts['mode'] = 'version';
+            return;
         }
         foreach( $opts as $key => $val )
         {
             switch( $key )
             {
-                    case 'client':
-                        $opts['clientnr'] = $val;
-                        unset( $opts[$key] );
-                        break;
-                    case 'c':
-                        $opts['clients'] = (int)$val > 0 ? (int)$val : 1;
-                        unset( $opts[$key] );
-                        break;
-                    case 'n':
-                        $opts['tries'] = (int)$val > 0 ? (int)$val : 1;
-                        unset( $opts[$key] );
-                        break;
-                    case 't':
-                        $opts['timeout'] = (int)$val;
-                        unset( $opts[$key] );
-                        break;
-                    case 'v':
-                        $opts['verbosity'] = (int)$val;
-                        unset( $opts[$key] );
-                        break;
-                    case 'k':
-                        $opts['keepalive'] = true;
-                        unset( $opts[$key] );
-                        break;
-                    case 'A':
-                        $opts['auth'] = $val;
-                        unset( $opts[$key] );
-                        break;
-                    case 'P':
-                        $opts['proxyauth'] = $val;
-                        unset( $opts[$key] );
-                        break;
-                    case 'X':
-                        $opts['proxy'] = $val;
-                        unset( $opts[$key] );
-                        break;
+                case 'child':
+                    $opts['childnr'] = $val;
+                    $opts['mode'] = 'child';
+                    unset( $opts[$key] );
+                    break;
+                case 'c':
+                    $opts['children'] = (int)$val > 0 ? (int)$val : 1;
+                    unset( $opts[$key] );
+                    break;
+                case 'n':
+                    $opts['tries'] = (int)$val > 0 ? (int)$val : 1;
+                    unset( $opts[$key] );
+                    break;
+                case 't':
+                    $opts['timeout'] = (int)$val;
+                    unset( $opts[$key] );
+                    break;
+                case 'v':
+                    $opts['verbosity'] = (int)$val;
+                    unset( $opts[$key] );
+                    break;
+                case 'k':
+                    $opts['keepalive'] = true;
+                    unset( $opts[$key] );
+                    break;
+                case 'A':
+                    $opts['auth'] = $val;
+                    unset( $opts[$key] );
+                    break;
+                case 'P':
+                    $opts['proxyauth'] = $val;
+                    unset( $opts[$key] );
+                    break;
+                case 'X':
+                    $opts['proxy'] = $val;
+                    unset( $opts[$key] );
+                    break;
             }
         }
-        $opts = array_merge( $defaults, $opts );
-        $this->opts = $opts;
-        return $opts;
+        // $this->opts is initialized by the constructor
+        $this->opts = array_merge( $this->opts, $opts );
     }
 
     protected function echoMsg( $msg, $lvl=1 )
     {
         if ( $lvl <= $this->opts['verbosity'] )
         {
-            echo ( php_sapi_name() == 'cli' ) ? $msg : htmlspecialchars( $msg );
+            echo ( $this->opts['outputformat'] == 'html' ) ? htmlspecialchars( $msg ) : $msg;
         }
     }
 
     /// @todo show different format for help when running from the web
-    static function helpMsg( $cmd )
+    function helpMsg( $cmd='' )
     {
-        if ( php_sapi_name() != 'cli' )
+        if ( $cmd == '' )
         {
-            echo '<pre>';
-            echo "Usage: " . htmlspecialchars( $cmd ) . " ? [option = value &amp;]* target=[http[s]://]hostname[:port]/path\n";
+            $cmd = $this->opts['self'];
+        }
+        $out = '';
+        if ( $this->opts['outputformat'] == 'html' )
+        {
+            $out .= '<pre>';
+            $out .= "Usage: " . htmlspecialchars( $cmd ) . " ? [option = value &amp;]* target=[http[s]://]hostname[:port]/path\n";
             $d = '';
         }
         else
         {
-            echo "Usage: $cmd [options] [http[s]://]hostname[:port]/path\n";
+            $out .= "Usage: $cmd [options] [http[s]://]hostname[:port]/path\n";
             $d = '-';
         }
-        echo "Options are:\n";
-        echo "    {$d}n requests     Number of requests to perform\n";
-        echo "    {$d}c concurrency  Number of multiple requests to make\n";
-        echo "    {$d}t timelimit    Seconds to max. wait for responses\n";
-        echo "    {$d}v verbosity    How much troubleshooting info to print\n";
-        echo "    {$d}A attribute    Add Basic WWW Authentication, the attributes\n";
-        echo "                    are a colon separated username and password.\n";
-        echo "    {$d}P attribute    Add Basic Proxy Authentication, the attributes\n";
-        echo "                    are a colon separated username and password.\n";
-        echo "    {$d}X proxy:port   Proxyserver and port number to use\n";
-        echo "    {$d}V              Print version number and exit\n";
-        echo "    {$d}h              Display usage information (this message)\n";
-        if ( php_sapi_name() != 'cli' )
+        $out .= "Options are:\n";
+        $out .= "    {$d}n requests     Number of requests to perform\n";
+        $out .= "    {$d}c concurrency  Number of multiple requests to make\n";
+        $out .= "    {$d}t timelimit    Seconds to max. wait for responses\n";
+        $out .= "    {$d}v verbosity    How much troubleshooting info to print\n";
+        $out .= "    {$d}A attribute    Add Basic WWW Authentication, the attributes\n";
+        $out .= "                    are a colon separated username and password.\n";
+        $out .= "    {$d}P attribute    Add Basic Proxy Authentication, the attributes\n";
+        $out .= "                    are a colon separated username and password.\n";
+        $out .= "    {$d}X proxy:port   Proxyserver and port number to use\n";
+        $out .= "    {$d}V              Print version number and exit\n";
+        $out .= "    {$d}h              Display usage information (this message)\n";
+        if ( $this->opts['outputformat'] == 'html' )
         {
-            echo "    {$d}php            path to php executable\n";
-            echo '</pre>';
+            $out .= "    {$d}php            path to php executable\n";
+            $out .= '</pre>';
         }
+        return $out;
     }
 
-    static function versionMsg()
+    function versionMsg()
     {
-        if ( php_sapi_name() != 'cli' ) echo '<pre>';
-        echo "This is eZAB, Version " . self::$version . "\n";
-        echo "Copyright 2010-2012 G. Giunta, eZ Systems, http://ez.no\n";
-        if ( php_sapi_name() != 'cli' ) echo '</pre>';
+        $out = '';
+        if ( $this->opts['outputformat'] == 'html' )
+            $out .= '<pre>';
+        $out .=  "This is eZAB, Version " . self::$version . "\n";
+        $out .= "Copyright 2010-2012 G. Giunta, eZ Systems, http://ez.no\n";
+        if ( $this->opts['outputformat'] == 'html' )
+            $out .= '</pre>';
+        return $out;
     }
 
     /**
      * Either exits or throws ane xception
+     *
+     * @todo !important when in web mode, there is little sign that there was an error...
      */
-    static protected function abort( $errcode=1, $msg='' )
+    protected function abort( $errcode=1, $msg='' )
     {
-        if ( !defined( 'EZAB_AS_LIB' ) )
+        if ( $this->opts['haltonerrors'] )
         {
-            echo ( php_sapi_name() == 'cli' ) ? htmlspecialchars( $msg ) : $msg;
+            if ( $this->opts['outputformat'] == 'html' )
+            {
+                echo htmlspecialchars( $msg );
+                // in html mode there is little visibility for the fact that this is an error...
+                if ( $errcode )
+                {
+                    echo "<br/><b>ERROR:</b> " . $errcode;
+                }
+            }
+            else
+            {
+                echo $msg;
+            }
+
             exit( $errcode );
         }
         else
