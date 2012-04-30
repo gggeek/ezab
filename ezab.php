@@ -1,4 +1,3 @@
-#!/usr/bin/env php
 <?php
 /**
  * ezab.php: same as Apache Bench tool, but in php.
