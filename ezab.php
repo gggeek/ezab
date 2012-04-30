@@ -63,6 +63,7 @@ class eZAB
         'target' => '',
         'keepalive' => false,
         'head' => false,
+        'interface' => '',
 
         // 'internal' options
         'childnr' => false,
@@ -167,6 +168,10 @@ class eZAB
         if ( $opts['head'] )
         {
             $args .= " -i";
+        }
+        if ( $opts['interface'] != '' )
+        {
+            $args .= " -B " . $opts['interface'];
         }
         $args .= " -v " . $opts['verbosity'];
         $args .= " " . escapeshellarg( $opts['target'] );
@@ -361,6 +366,18 @@ class eZAB
                     curl_setopt( $curl, CURLOPT_PROXYAUTH, $opts['proxy'] );
                 }
             }
+            if ( !$opts['keepalive'] )
+            {
+                curl_setopt( $curl, CURLOPT_HTTPHEADER, array( 'Connection: close' ) );
+            }
+            if ( $opts['head'] )
+            {
+                curl_setopt( $curl, CURLOPT_NOBODY, true );
+            }
+            if ( $opts['interface'] != '' )
+            {
+                curl_setopt( $curl, CURLOPT_INTERFACE, $opts['interface'] );
+            }
             if ( $opts['verbosity'] > 8 )
             {
                 // We're writing curl data to files instead of piping it back to the parent because:
@@ -369,14 +386,6 @@ class eZAB
                 $logfp = fopen( basename( $opts['parentid'] ) . '.' . $opts['childnr'] . '.trc', 'w' );
                 curl_setopt( $curl, CURLOPT_VERBOSE, true );
                 curl_setopt( $curl, CURLOPT_STDERR, $logfp );
-            }
-            if ( !$opts['keepalive'] )
-            {
-                curl_setopt( $curl, CURLOPT_HTTPHEADER, array( 'Connection: close' ) );
-            }
-            if ( $opts['head'] )
-            {
-                curl_setopt( $curl, CURLOPT_NOBODY, true );
             }
 
             for ( $i = 0; $i < $opts['tries']; $i++ )
@@ -581,7 +590,7 @@ class eZAB
     public function parseArgs( $argv )
     {
         $options = array(
-            'A', 'h', 'help', 'child', 'c', 'i', 'k', 'n',  'P', 'parent', 'php', 't', 'V', 'v', 'X'
+            'A', 'B', 'h', 'help', 'child', 'c', 'i', 'k', 'n',  'P', 'parent', 'php', 't', 'V', 'v', 'X'
         );
         $singleoptions = array( 'h', 'help', 'i', 'k', 'V' );
 
@@ -657,6 +666,9 @@ class eZAB
                     case 'A':
                         $opts['auth'] = $val;
                         break;
+                    case 'B':
+                        $opts['interface'] = $val;
+                        break;
                     case 'c':
                         $opts['children'] = (int)$val > 0 ? (int)$val : 1;
                         break;
@@ -730,6 +742,9 @@ class eZAB
                 case 'A':
                     $opts['auth'] = $val;
                     unset( $opts[$key] );
+                    break;
+                case 'B':
+                    $opts['interface'] = $val;
                     break;
                 case 'c':
                     $opts['children'] = (int)$val > 0 ? (int)$val : 1;
@@ -809,13 +824,16 @@ class eZAB
         $out .= "    {$d}n requests     Number of requests to perform\n";
         $out .= "    {$d}c concurrency  Number of multiple requests to make\n";
         $out .= "    {$d}t timelimit    Seconds to max. wait for responses\n";
+        $out .= "    {$d}B address      Address to bind to when making outgoing connections\n";
         $out .= "    {$d}v verbosity    How much troubleshooting info to print\n";
+        $out .= "    {$d}i              Use HEAD instead of GET\n";
         $out .= "    {$d}A attribute    Add Basic WWW Authentication, the attributes\n";
         $out .= "                    are a colon separated username and password.\n";
         $out .= "    {$d}P attribute    Add Basic Proxy Authentication, the attributes\n";
         $out .= "                    are a colon separated username and password.\n";
         $out .= "    {$d}X proxy:port   Proxyserver and port number to use\n";
         $out .= "    {$d}V              Print version number and exit\n";
+        $out .= "    {$d}k              Use HTTP KeepAlive feature\n";
         $out .= "    {$d}h              Display usage information (this message)\n";
         if ( $this->opts['outputformat'] == 'html' )
         {
