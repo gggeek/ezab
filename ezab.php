@@ -15,11 +15,12 @@
  * your app and use it as a plain php class, by defining the EZAB_AS_LIB constant
  * before including this file.
  *
- * @todo allow setting more curl options: timeouts, keepalive (k), http 1.0 vs 1.1, resp. compression
+ * @todo allow setting more curl options: timeouts, http 1.0 vs 1.1, resp. compression
  * @todo verify if we do proper curl error checking for all cases (404 tested)
- * @todo parse more stats from children (same format as ab does), eg. print min, max, resp. times, connect times etc...
+ * @todo parse more stats from children (same format as ab does), eg. print min, max, resp. times, connect times, nr. of keepalives etc...
  * @todo check if all our calculation methods are the same as used by ab
  * @todo add some nice graph output, as eg. abgraph does
+ * @todo add named constants for verbosity levels; decide wht is ouput at each level (currently used: 2 and 9)
  * @todo !important raise php timeout if run() is called not from cli
  * @todo !important allow an option to be set to run the code in "tool" mode:
  *       - avoid calling echo directly with runParent and ParseXxx
@@ -66,6 +67,7 @@ class eZAB
         'keepalive' => false,
         // 'internal' options
         'childnr' => false,
+        'parentid' => false,
         // the actual script path (self)
         'self' => __FILE__,
         'php' => 'php',
@@ -95,6 +97,7 @@ class eZAB
                 return $this->runParent();
             case 'runchild':
                 echo $this->runChild();
+                break;
             case 'versionmsg':
                 echo $this->versionMsg();
                 break;
@@ -106,18 +109,24 @@ class eZAB
         }
     }
 
+    /**
+     * Note: sets a value to $this->opts['parentid'], too
+     */
     public function runParent()
     {
-        $opts = $this->opts;
 
         // mandatory option
-        if ( $opts['target'] == '' )
+        if ( $this->opts['target'] == '' )
         {
             echo $this->helpMsg();
             $this->abort( 1 );
         }
 
         echo $this->versionMsg();
+
+        $this->opts['parentid'] = time() . "." . getmypid(); // make it as unique as possible
+
+        $opts = $this->opts;
 
         /// @todo shall we do exactly $opts['tries'] tests, making last thread execute more?
         $child_tries = (int) ( $opts['tries'] / $opts['children'] );
@@ -132,7 +141,8 @@ class eZAB
         $this->echoMsg( "----------------------------------------\n", 2 );
 
         /// @todo !important move cli opts reconstruction to a separate function
-        $args = "-n $child_tries -t " . escapeshellarg( $opts['timeout'] );
+        $args = "--parent " . $opts['parentid'];
+        $args .= " -n $child_tries -t " . escapeshellarg( $opts['timeout'] );
         if ( $opts['auth'] != '' )
         {
             $args .= " -A " . escapeshellarg( $opts['auth'] );
@@ -149,6 +159,7 @@ class eZAB
         {
             $args .= " -k";
         }
+        $args .= " -v " . $opts['verbosity'];
         $args .= " " . escapeshellarg( $opts['target'] );
 
         //$starttimes = array();
@@ -276,7 +287,8 @@ class eZAB
             "Complete requests:      {$data['tries']}\n" . // same as AB: includes failures
             "Failed requests:        {$data['failures']}\n" .
             "Write errors:           {$data['write_errors']}\n" .
-            "Non-2xx responses:      {$data['non_2xx']}\n" .
+            ( $data['non_2xx'] ?   "Non-2xx responses:      {$data['non_2xx']}\n" : '' ) .
+            ( $opts['keepalive'] ? "Keep-Alive requests:    [NA]\n" : '' ) .
             "Total transferred:      {$data['tot_bytes']} bytes\n" .
             "HTML transferred:       {$data['html_bytes']} bytes\n" . // NB: includes failures
             "Requests per second:    " . sprintf( '%.2f', $data['rps'] ) . " [#/sec] (mean)\n" . // NB: includes failures
@@ -334,7 +346,19 @@ class eZAB
                     curl_setopt( $curl, CURLOPT_PROXYAUTH, $opts['proxy'] );
                 }
             }
-
+            if ( $opts['verbosity'] > 8 )
+            {
+                // We're writing curl data to files instead of piping it back to the parent because:
+                // 1. it might be a lot of data, and there are apparently limited buffers php has for pipes
+                // 2. on windows reading from pipes is blocking anyway, so we can not have concurrent children
+                $logfp = fopen( $opts['parentid'] . '.' . $opts['childnr'] . '.trc', 'w' );
+                curl_setopt( $curl, CURLOPT_VERBOSE, true );
+                curl_setopt( $curl, CURLOPT_STDERR, $logfp );
+            }
+            if ( !$opts['keepalive'] )
+            {
+                curl_setopt( $curl, CURLOPT_HTTPHEADER, array( 'Connection: close' ) );
+            }
             for ( $i = 0; $i < $opts['tries']; $i++ )
             {
                 $start = microtime( true );
@@ -391,6 +415,11 @@ class eZAB
             $resp['failures'] = $resp['tries'];
         }
         //$ttime = microtime( true ) - $ttime;
+
+        if ( $opts['verbosity'] > 8 )
+        {
+            fclose( $logfp );
+        }
 
         if ( $resp['t_min'] == -1 )
         {
@@ -532,7 +561,7 @@ class eZAB
     public function parseArgs( $argv )
     {
         $options = array(
-            'h', 'help', 'V', 'child', 'php', 'c', 'n', 't', 'v', 'A', 'P', 'X'
+            'A', 'h', 'help', 'child', 'c', 'k', 'n',  'P', 'parent', 'php', 't', 'V', 'v', 'X'
         );
         $singleoptions = array( 'k', 'h', 'help', 'V' );
 
@@ -604,33 +633,37 @@ class eZAB
                     case 'V':
                         $this->opts['command'] = 'versionmsg';
                         return;
-                    case 'child':
-                        $opts['childnr'] = $val;
-                        $opts['command'] = 'child';
-                        break;
-                    case 'php':
-                        $opts['php'] = $val;
+
+                    case 'A':
+                        $opts['auth'] = $val;
                         break;
                     case 'c':
                         $opts['children'] = (int)$val > 0 ? (int)$val : 1;
                         break;
+                    case 'child':
+                        $opts['childnr'] = $val;
+                        $opts['command'] = 'runchild';
+                        break;
+                    case 'k':
+                        $opts['keepalive'] = true;
+                        break;
                     case 'n':
                         $opts['tries'] = (int)$val > 0 ? (int)$val : 1;
+                        break;
+                    case 'P':
+                        $opts['proxyauth'] = $val;
+                        break;
+                    case 'parent':
+                        $opts['parentid'] = $val;
+                        break;
+                    case 'php':
+                        $opts['php'] = $val;
                         break;
                     case 't':
                         $opts['timeout'] = (int)$val;
                         break;
                     case 'v':
                         $opts['verbosity'] = (int)$val;
-                        break;
-                    case 'k':
-                        $opts['keepalive'] = true;
-                        break;
-                    case 'A':
-                        $opts['auth'] = $val;
-                        break;
-                    case 'P':
-                        $opts['proxyauth'] = $val;
                         break;
                     case 'X':
                         $opts['proxy'] = $val;
@@ -671,17 +704,33 @@ class eZAB
         {
             switch( $key )
             {
-                case 'child':
-                    $opts['childnr'] = $val;
-                    $opts['command'] = 'runchild';
+                case 'A':
+                    $opts['auth'] = $val;
                     unset( $opts[$key] );
                     break;
                 case 'c':
                     $opts['children'] = (int)$val > 0 ? (int)$val : 1;
                     unset( $opts[$key] );
                     break;
+                case 'child':
+                    $opts['childnr'] = $val;
+                    $opts['command'] = 'runchild';
+                    unset( $opts[$key] );
+                    break;
+                case 'k':
+                    $opts['keepalive'] = true;
+                    unset( $opts[$key] );
+                    break;
                 case 'n':
                     $opts['tries'] = (int)$val > 0 ? (int)$val : 1;
+                    unset( $opts[$key] );
+                    break;
+                case 'P':
+                    $opts['proxyauth'] = $val;
+                    unset( $opts[$key] );
+                    break;
+                case 'parent':
+                    $opts['parentid'] = $val;
                     unset( $opts[$key] );
                     break;
                 case 't':
@@ -690,18 +739,6 @@ class eZAB
                     break;
                 case 'v':
                     $opts['verbosity'] = (int)$val;
-                    unset( $opts[$key] );
-                    break;
-                case 'k':
-                    $opts['keepalive'] = true;
-                    unset( $opts[$key] );
-                    break;
-                case 'A':
-                    $opts['auth'] = $val;
-                    unset( $opts[$key] );
-                    break;
-                case 'P':
-                    $opts['proxyauth'] = $val;
                     unset( $opts[$key] );
                     break;
                 case 'X':
