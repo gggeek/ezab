@@ -50,7 +50,7 @@ if ( !defined( 'EZAB_AS_LIB' ) )
 
 class eZAB
 {
-    static $version = '0.3';
+    static $version = '0.3-dev';
     static $defaults = array(
         // 'real' options
         'verbosity' => 1, // -v verbosity    How much troubleshooting info to print
@@ -62,6 +62,8 @@ class eZAB
         'proxyauth' => false,
         'target' => '',
         'keepalive' => false,
+        'head' => false,
+
         // 'internal' options
         'childnr' => false,
         'parentid' => false,
@@ -161,6 +163,10 @@ class eZAB
         if ( $opts['keepalive'] )
         {
             $args .= " -k";
+        }
+        if ( $opts['head'] )
+        {
+            $args .= " -i";
         }
         $args .= " -v " . $opts['verbosity'];
         $args .= " " . escapeshellarg( $opts['target'] );
@@ -368,6 +374,11 @@ class eZAB
             {
                 curl_setopt( $curl, CURLOPT_HTTPHEADER, array( 'Connection: close' ) );
             }
+            if ( $opts['head'] )
+            {
+                curl_setopt( $curl, CURLOPT_NOBODY, true );
+            }
+
             for ( $i = 0; $i < $opts['tries']; $i++ )
             {
                 $start = microtime( true );
@@ -570,9 +581,9 @@ class eZAB
     public function parseArgs( $argv )
     {
         $options = array(
-            'A', 'h', 'help', 'child', 'c', 'k', 'n',  'P', 'parent', 'php', 't', 'V', 'v', 'X'
+            'A', 'h', 'help', 'child', 'c', 'i', 'k', 'n',  'P', 'parent', 'php', 't', 'V', 'v', 'X'
         );
-        $singleoptions = array( 'k', 'h', 'help', 'V' );
+        $singleoptions = array( 'h', 'help', 'i', 'k', 'V' );
 
         $longoptions = array();
         foreach( $options as $o )
@@ -653,6 +664,9 @@ class eZAB
                         $opts['childnr'] = (int)$val;
                         $opts['command'] = 'runchild';
                         break;
+                   case 'i':
+                        $opts['head'] = true;
+                        break;
                     case 'k':
                         $opts['keepalive'] = true;
                         break;
@@ -724,6 +738,10 @@ class eZAB
                 case 'child':
                     $opts['childnr'] = (int)$val;
                     $opts['command'] = 'runchild';
+                    unset( $opts[$key] );
+                    break;
+               case 'i':
+                    $opts['head'] = true;
                     unset( $opts[$key] );
                     break;
                 case 'k':
