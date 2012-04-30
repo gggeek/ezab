@@ -21,10 +21,8 @@
  * @todo check if all our calculation methods are the same as used by ab
  * @todo add some nice graph output, as eg. abgraph does
  * @todo add named constants for verbosity levels; decide wht is ouput at each level (currently used: 2 and 9)
+ * @todo !important add an option for a custom dir for traces/logfiles
  * @todo !important raise php timeout if run() is called not from cli
- * @todo !important allow an option to be set to run the code in "tool" mode:
- *       - avoid calling echo directly with runParent and ParseXxx
- *       - etc...
  * @todo !important in web mode, display a form to be filled by user that triggers the request
  */
 
@@ -87,7 +85,8 @@ class eZAB
     }
 
     /**
-     * Actual execution of the test. Depending on options, calls runParent or runChild
+     * Actual execution of the test, echoes results to stdout.
+     * Depending on options, calls runParent or runChild, or echoes help messages
      */
     public function run()
     {
@@ -110,7 +109,9 @@ class eZAB
     }
 
     /**
+     * Runs the test, prints results (unless verbosity option has been set to 0).
      * Note: sets a value to $this->opts['parentid'], too
+     * @return array
      */
     public function runParent()
     {
@@ -122,17 +123,20 @@ class eZAB
             $this->abort( 1 );
         }
 
-        echo $this->versionMsg();
+        if ( $this->opts['verbosity'] > 1 )
+        {
+            echo $this->versionMsg();
+        }
+        if ( $this->opts['outputformat'] == 'html' && $this->opts['verbosity'] > 1 )
+        {
+            echo '<pre>';
+        }
 
         $this->opts['parentid'] = time() . "." . getmypid(); // make it as unique as possible
-
         $opts = $this->opts;
-
         /// @todo shall we do exactly $opts['tries'] tests, making last thread execute more?
         $child_tries = (int) ( $opts['tries'] / $opts['children'] );
         $php = $this->getPHPExecutable( $opts['php'] );
-
-        if ( $this->opts['outputformat'] == 'html' ) echo '<pre>';
 
         $this->echoMsg( "Benchmarking {$opts['target']} (please be patient)...\n" );
 
@@ -215,12 +219,11 @@ class eZAB
                     $status = proc_get_status( $childprocs[$i] );
                     if ( $status['running'] == false )
                     {
-                        $childresults[$i] = array(
+                        $childrensults[$i] = array_merge( $status, array(
                             'output' => stream_get_contents( $pipes[$i][1] ),
                             'error' => stream_get_contents( $pipes[$i][2] ),
-                            'return' => proc_close( $childprocs[$i] ),
-                            'status' => $status
-                        );
+                            'return' => proc_close( $childprocs[$i] )
+                        ) );
                         $childprocs[$i] = false;
                         $finished++;
                     }
@@ -228,7 +231,10 @@ class eZAB
             }
 
             $this->echoMsg( "." );
-            flush();
+            if ( $opts['verbosity'] > 1 )
+            {
+                flush();
+            }
 
         } while( $finished < $opts['children'] );
 
@@ -243,20 +249,20 @@ class eZAB
         for ( $i = 0; $i < $opts['children']; $i++ )
         {
             /// @todo beautify
-            $this->echoMsg( $childresults[$i]['output'] . "\n", 2 );
+            $this->echoMsg( $childrensults[$i]['output'] . "\n", 2 );
         }
 
         $this->echoMsg( "\nChildren details:\n----------------------------------------\n", 9 );
-        $this->echoMsg( var_export( $childresults, true ), 9 );
+        $this->echoMsg( var_export( $childrensults, true ), 9 );
 
         $outputs = array();
-        foreach( $childresults as $i => $res )
+        foreach( $childrensults as $i => $res )
         {
             if ( $res['return'] != 0 || $res['output'] == '' )
             {
                 $this->abort( 1, "Child process $i did not terminate correctly. Exiting" );
             }
-            $outputs[] = $res['output'];
+            $outputs[$i] = $res['output'];
         }
         $data = $this->parseOutputs( $outputs );
 
@@ -297,6 +303,10 @@ class eZAB
             "Transfer rate:          " . sprintf( '%.2f', $data['tot_bytes'] / ( 1024 * $data['tot_time'] ) ) . " [Kbytes/sec] received\n"
         );
 
+        return array(
+            'summary_data' => $data,
+            'children_details' => $childrensults
+        );
     }
 
     /**
@@ -351,7 +361,7 @@ class eZAB
                 // We're writing curl data to files instead of piping it back to the parent because:
                 // 1. it might be a lot of data, and there are apparently limited buffers php has for pipes
                 // 2. on windows reading from pipes is blocking anyway, so we can not have concurrent children
-                $logfp = fopen( $opts['parentid'] . '.' . $opts['childnr'] . '.trc', 'w' );
+                $logfp = fopen( basename( $opts['parentid'] ) . '.' . $opts['childnr'] . '.trc', 'w' );
                 curl_setopt( $curl, CURLOPT_VERBOSE, true );
                 curl_setopt( $curl, CURLOPT_STDERR, $logfp );
             }
@@ -641,7 +651,7 @@ class eZAB
                         $opts['children'] = (int)$val > 0 ? (int)$val : 1;
                         break;
                     case 'child':
-                        $opts['childnr'] = $val;
+                        $opts['childnr'] = (int)$val;
                         $opts['command'] = 'runchild';
                         break;
                     case 'k':
@@ -713,7 +723,7 @@ class eZAB
                     unset( $opts[$key] );
                     break;
                 case 'child':
-                    $opts['childnr'] = $val;
+                    $opts['childnr'] = (int)$val;
                     $opts['command'] = 'runchild';
                     unset( $opts[$key] );
                     break;
