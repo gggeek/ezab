@@ -5,15 +5,15 @@ This is a tool for benchmarking web servers.
 It is designed to give you an impression of how your current web server installation performs.
 This especially shows you how many requests per second your web server installation is capable of serving.
 
-It strikes to be as close to Apache Bench as possible, both in supported options
+It strives to be as close to Apache Bench as possible, both in supported options
 an in output format.
 
 Requirements
 ------------
 
-. php version 5
-. ability to run php from the command line (for linux this often means installing the php-cli package)
-. the curl php extension
+- php version 5
+- ability to run php from the command line (for linux this often means installing the php-cli package)
+- the curl php extension
 
 Using the tool
 --------------
@@ -27,8 +27,8 @@ Synopsis, options
 -----------------
 
 Just run the script using the -h option:
-. php ezab.php -h
-. http://localhost/ezab.php?h=1
+* php ezab.php -h
+* http://localhost/ezab.php?h=1
 
 The goal is to be 100% compatible with the syntax used by AB.
 
