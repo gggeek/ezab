@@ -6,7 +6,7 @@ It is designed to give you an impression of how your current web server installa
 This especially shows you how many requests per second your web server installation is capable of serving.
 
 It strives to be as close to Apache Bench as possible, both in supported options
-an in output format.
+and in output format.
 
 Requirements
 ------------
@@ -38,6 +38,22 @@ Output
 See the AB docs for details.
 At the time of writing, the most recent version is available at <http://httpd.apache.org/docs/2.4/programs/ab.html>
 
+Development status
+------------------
+
+Current status is UNDER CONSTRUCTION.
+
+Many features of the original AB are still missing, such s POST/PUT support, custom http headers, cookies etc...
+The output of the tool is also quite lacking.
+Instead of having the list of things that do work in the docs, it is suggested to run the script with the -h option.
+
+On the other hand, there are already a couple of fetaures that we do better than the original:
+1. support for http 1.1 by default. AB uses http 1.0, but most of the web in 2012 runs on version 1.1.
+   This means that the numbers you get should be closer to "real life traffic"
+2. better support for keepalives (AB can only do http/1.0 keepalives, which Apache does not support when running dynamic page generators such as php)
+3. support for compressed http responses (using the -j option)
+
+
 Under the hood
 --------------
 
@@ -46,4 +62,4 @@ execute more copies of itself, each of which will send some requests to the serv
 The number of processes forked depends on the "-c" parameter.
 The main process waits for all chidren to terminate execution, collects their
 metrics, aggregates them and displays the result.
-
+To debug execution of the program if anything goes wrong, run it at verbosity level 9 (option: -v9)

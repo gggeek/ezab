@@ -1,0 +1,5 @@
+*.PHPEditProject
+*.bak
+build
+dist
+pakefile.php
