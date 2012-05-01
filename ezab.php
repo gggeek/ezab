@@ -64,6 +64,7 @@ class eZAB
         'keepalive' => false,
         'head' => false,
         'interface' => '',
+        'respencoding' => false,
 
         // 'internal' options
         'childnr' => false,
@@ -172,6 +173,10 @@ class eZAB
         if ( $opts['interface'] != '' )
         {
             $args .= " -B " . $opts['interface'];
+        }
+        if ( $opts['respencoding'] )
+        {
+             $args .= " -j";
         }
         $args .= " -v " . $opts['verbosity'];
         $args .= " " . escapeshellarg( $opts['target'] );
@@ -378,6 +383,10 @@ class eZAB
             {
                 curl_setopt( $curl, CURLOPT_INTERFACE, $opts['interface'] );
             }
+            if ( defined( 'CURLOPT_ENCODING' ) && $opts['respencoding'] ) // appeared in curl 7.10
+            {
+                curl_setopt( $curl, CURLOPT_ENCODING, '' );
+            }
             if ( $opts['verbosity'] > 8 )
             {
                 // We're writing curl data to files instead of piping it back to the parent because:
@@ -421,8 +430,9 @@ class eZAB
                     {
                         $resp['write_errors']++;
                     }
-                    $tot_size = strlen( $result );
+                    //$tot_size = strlen( $result ); // uncompressed data: not ok with -j option
                     $html_size =  $info['size_download'];
+                    $tot_size = $html_size + $info['header_size'];
                     /// @todo if resp. size changes, by default it should be flagged as error (unless option specified)
                     $resp['sizes'][$html_size] = isset( $resp['sizes'][$html_size] ) ? ( $resp['sizes'][$html_size] + 1 ) : 1;
                     $resp['html_bytes'] += (float)$html_size;
@@ -590,9 +600,9 @@ class eZAB
     public function parseArgs( $argv )
     {
         $options = array(
-            'A', 'B', 'h', 'help', 'child', 'c', 'i', 'k', 'n',  'P', 'parent', 'php', 't', 'V', 'v', 'X'
+            'A', 'B', 'h', 'help', 'child', 'c', 'i', 'j', 'k', 'n',  'P', 'parent', 'php', 't', 'V', 'v', 'X'
         );
-        $singleoptions = array( 'h', 'help', 'i', 'k', 'V' );
+        $singleoptions = array( 'h', 'help', 'i', 'j', 'k', 'V' );
 
         $longoptions = array();
         foreach( $options as $o )
@@ -679,6 +689,9 @@ class eZAB
                    case 'i':
                         $opts['head'] = true;
                         break;
+                   case 'j':
+                        $opts['respencoding'] = true;
+                        break;
                     case 'k':
                         $opts['keepalive'] = true;
                         break;
@@ -755,8 +768,12 @@ class eZAB
                     $opts['command'] = 'runchild';
                     unset( $opts[$key] );
                     break;
-               case 'i':
+                case 'i':
                     $opts['head'] = true;
+                    unset( $opts[$key] );
+                    break;
+                case 'j':
+                    $opts['respencoding'] = true;
                     unset( $opts[$key] );
                     break;
                 case 'k':
@@ -834,6 +851,10 @@ class eZAB
         $out .= "    {$d}X proxy:port   Proxyserver and port number to use\n";
         $out .= "    {$d}V              Print version number and exit\n";
         $out .= "    {$d}k              Use HTTP KeepAlive feature\n";
+
+        // extra functionality
+        if ( defined( 'CURLOPT_ENCODING' ) ) $out .= "    {$d}j              Use HTTP Response Compression feature\n";
+
         $out .= "    {$d}h              Display usage information (this message)\n";
         if ( $this->opts['outputformat'] == 'html' )
         {
