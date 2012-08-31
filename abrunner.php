@@ -1,10 +1,10 @@
 <?php
 /**
  * A script to be used for load testing scenarios.
- * It uses Apache bench (ab) to test a set of urls for many iterations, increasing
- * concurrency count.
- * Every test can be run both with and without keepalives.
- * It writes both detailed output and a summary file in a dedicated output directory,
+ * It uses Apache bench (ab) to test a set of urls for many iterations, with
+ * varying concurrency count.
+ * All ab options are supported (eg. using or not keepalives).
+ * It writes in a dedicated output directory both detailed output and a summary file,
  * as well as a csv file that is easy to use for producing graphs.
  *
  * @author G. Giunta

@@ -877,7 +877,7 @@ class eZAB
     }
 
     /**
-     * Either exits or throws ane xception
+     * Either exits or throws an exception
      *
      * @todo !important when in web mode, there is little sign that there was an error...
      */
