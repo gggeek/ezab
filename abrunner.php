@@ -11,9 +11,8 @@
  * @license GNU GPL 2.0
  * @copyright (C) G. Giunta 2012
  *
- * @todo add more cli options: sleep time, output dir and filename, session cookie, basic auth, etc...
+ * @todo add more cli options: sleep time, verbosity, output dir and filename
  * @todo AB only does http 1.0 requests; it would be nice to use siege, which can do http 1.1 (or even php which uses curl)
- * @todo use -r option for ab to ignore timeout errors (but option does not exist on older ab, have to test version first)
  */
 
 if ( !defined( 'ABRUNNER_AS_LIB' ) )
@@ -38,29 +37,30 @@ class ABRunner
     static $version = '0.1-dev';
     static $defaults = array(
         // 'real' options
-        'summary_file' => 'summary.txt',
         'label' => '',
         'server' => 'http://localhost',
         'urls' => 'index.php',
         'repetitions' => 100,
         'concurrencies' => '1 10',
-        'dokeepalives' => true,
-        'donokeepalives' => true,
         'dognuplot' => false,
         'doaggregategraph' => false,
+        'ab' => 'ab',
 
         // 'internal' options
-        'ab' => 'ab',
+        'summary_file' => 'summary.txt',
         'output_dir' => 'test_logs',
         'sleep' => 1,
         'verbosity' => 1,
         'self' => __FILE__,
         'outputformat' => 'text',
         'haltonerrors' => true,
-        'command' => 'runtests'
+        'command' => 'runtests',
+        'abopts' => array()
     );
     // config options for this instance
     protected $opts = array();
+    // command-line switches to ab that we cannot let the user pass on by himself
+    static $ignoredabargs = array( 'n', 'c', 'v', 'w', 'V', 'd', 's', 'g', 'h' );
 
     function __construct( $opts = array() )
     {
@@ -135,12 +135,9 @@ class ABRunner
             $aggfilename = '';
             if ( $this->opts['doaggregategraph'] )
             {
-                $aggfilename = $this->opts['output_dir'] . '/' . str_replace( '/', '_', "{$this->opts['label']}{$url}_" );
+                $aggfilename = $this->opts['output_dir'] . '/' . str_replace( '/', '_', "{$this->opts['label']}{$url}" ) . '.csv';
                 $header = "Concurrency;Requests per second;Time per request ms (mean);Time per request (90%);Time per request (min);Time per request (max);Time per request (median);Time per request (sd);Transfer rate Kb/s;Time taken;Completed;Failed;Non-2xx\n";
-                if ( $opts['dokeepalives'] )
-                    file_put_contents( $aggfilename . 'k.csv', $header );
-                if ( $opts['donokeepalives'] )
-                    file_put_contents( $aggfilename . 'nk.csv', $header );
+                file_put_contents( $aggfilename, $header );
             }
 
             foreach( explode( ' ', $opts['concurrencies'] ) as $concurrency )
@@ -149,16 +146,8 @@ class ABRunner
                 {
                     continue;
                 }
-                if ( $opts['donokeepalives'] )
-                {
-                    $this->runTest( $ab, $url, $concurrency, false, $aggfilename . 'nk.csv' );
-                    sleep( $opts['sleep'] );
-                }
-                if ( $opts['dokeepalives'] )
-                {
-                    $this->runTest( $ab, $url, $concurrency, true, $aggfilename . 'k.csv' );
-                    sleep( $opts['sleep'] );
-                }
+                $this->runTest( $ab, $url, $concurrency, $aggfilename );
+                sleep( $opts['sleep'] );
             }
         }
 
@@ -173,18 +162,33 @@ class ABRunner
         $this->echoMsg( "### Summary available in file: " . $opts['output_dir'] . '/' . $opts['summary_file'] );
     }
 
-    protected function runTest( $ab, $url, $concurrency, $keepalive=true, $aggfilename='' )
+    protected function runTest( $ab, $url, $concurrency, $aggfilename='' )
     {
-        $filename = $this->opts['output_dir'] . '/' . str_replace( '/', '_', "{$this->opts['label']}{$url}_c{$concurrency}_" ) . ( $keepalive ? 'k' : 'nk' ) ;
+        $filename = $this->opts['output_dir'] . '/' . str_replace( '/', '_', "{$this->opts['label']}{$url}_c{$concurrency}" );
         $gnuplot = '';
         if ( $this->opts['dognuplot'] )
         {
-            $gnuplot = ' -g ' . escapeshellarg( $filename . '.csv' ) . ' ';
+            $gnuplot = '-g ' . escapeshellarg( $filename . '.csv' ) . ' ';
         }
+        // we scale total requests with concurrency, to always have the same number of requests per client
         $total = $concurrency * $this->opts['repetitions'];
         $uri = rtrim( $this->opts['server'], '/' ) . '/' . ltrim( $url, '/' );
-        $args =  "-n $total -c $concurrency" . ( $keepalive ? ' -k ' : ' ' ) . $gnuplot . escapeshellarg( $uri );
-        $msg = "Testing $uri, concurrency: $concurrency, iterations: $total (" . ( $keepalive ? '' : 'no ' ) . "keepalive)";
+        // rebuild extra options for ab
+        $extra = array();
+        foreach ( $this->opts['abopts'] as $opt => $val )
+        {
+            if ( $val === true )
+            {
+                $extra[] = '-' . $opt;
+            }
+            else
+            {
+                $extra[] = '-' . $opt . ' ' . escapeshellarg( $val );
+            }
+        }
+        $extra = !empty( $extra ) ? ( implode( ' ', $extra ) . ' ' ) : '';
+        $args =  "-n $total -c $concurrency " . $gnuplot . $extra . escapeshellarg( $uri );
+        $msg = "Testing $uri, concurrency: $concurrency, iterations: $total";
 
         $this->echoMsg( "\n" );
         $this->echoMsg( $msg . "\n" );
@@ -223,7 +227,7 @@ class ABRunner
         {
             $this->echoMsg( "WARNING All responses received non 200/OK. Url is most likely wrong\n", 0 );
         }
-        if ( $keepalive )
+        if ( array_key_exists( 'k', $this->opts['abopts'] ) )
         {
             preg_match( '/^Keep-Alive requests:.+$/m', $out, $matches ) && $this->logMsg( $matches[0] );
             if ( preg_match( '/^Keep-Alive requests: +(\d+).*?$/m', $out, $matches ) && $matches[1] === '0' )
@@ -283,9 +287,9 @@ class ABRunner
     public function parseArgs( $argv )
     {
         $options = array(
-            's', 'u', 'h', 'help', 'c', 'r', 'l', 'n', 'k',  'g', 'a', 'V', 'ab'
+            's', 'u', 'h', 'help', 'c', 'r', 'l', 'g', 'a', 'V', 'ab'
         );
-        $singleoptions = array( 'h', 'help', 'n', 'k', 'g', 'a', 'V' );
+        $singleoptions = array( 'h', 'help', 'g', 'a', 'V' );
 
         $longoptions = array();
         foreach( $options as $o )
@@ -297,15 +301,9 @@ class ABRunner
         }
 
         $argc = count( $argv );
-        /*if ( $argc < 2 )
-        {
-            echo "ab: wrong number of arguments\n";
-            echo $this->helpMsg( @$argv[0] );
-            $this->abort( 1 );
-        }*/
 
         // symlinks, etc... trust $argv[0] better than __FILE__
-        //$this->opts['self'] = @$argv[0];
+        $this->opts['self'] = @$argv[0];
 
         // this->opts has already been initialized by constructor
         $opts = $this->opts;
@@ -317,8 +315,31 @@ class ABRunner
                 $opt = ltrim( $argv[$i], '-' );
                 $val = null;
 
+                // This option is forwarded directly to ab.
+                // For these, we do not try to validate the ones which need a value,
+                // like we do for the options to this script
+                if ( strpos( $opt, 'ab_' ) === 0 )
+                {
+                    $opt = substr( $opt, 3 );
+                    if ( in_array( $opt, self::$ignoredabargs) )
+                    {
+                        $this->echoMsg( "WARNING Can not pass to ab directly the option $opt\n", 0 );
+                        continue;
+                    }
+                    if ( $i+1 < $argc && @$argv[$i+1][0] != '-' )
+                    {
+                        $opts['abopts'][$opt] = $argv[$i+1];
+                        $i++;
+                    }
+                    else
+                    {
+                        $opts['abopts'][$opt] = true;
+                    }
+                    continue;
+                }
+
                 /// @todo we should also allow long options with no space between opt and val
-                if ( !in_array( $opt, $longoptions ) )
+                if ( !in_array( $opt, $longoptions ) && strpos( $opt, 'ab_' ) !== 0 )
                 {
                     if ( strlen( $opt ) > 1 )
                     {
@@ -370,12 +391,6 @@ class ABRunner
                         break;
                    case 'l':
                         $opts['label'] = $val;
-                        break;
-                   case 'n':
-                        $opts['donokeepalives'] = false;
-                        break;
-                    case 'k':
-                        $opts['dokeepalives'] = false;
                         break;
                     case 'g':
                         $opts['dognuplot'] = true;
@@ -439,19 +454,17 @@ class ABRunner
         $out .= "    {$d}u urls          List of urls to test. Use double quotes around, separate them with spaces. Defaults to \"index.php\"\n";
         $out .= "    {$d}c concurrencies List of concurrent clients to use. Use double quotes around, separate them with spaces. Defaults to \"1 10\"\n";
         $out .= "    {$d}r repetitions   The number of times each client requests each url. Defaults to 100\n";
-        $out .= "    {$d}n               do not execute non-keepalive tests\n";
-        $out .= "    {$d}k               do not execute keepalive tests\n";
-        $out .= "    {$d}l label         Use a label for this test run. Will be used as prefix for output filenames\n";
+        $out .= "    {$d}l label         Use a label for this test run. Will be used as prefix for all output filenames except summary\n";
         $out .= "    {$d}g               Save gnuplot detail files too (allows graphing results of every ab invocation)\n";
-        $out .= "    {$d}a               Save aggregate results csv file\n";
+        $out .= "    {$d}a               Save aggregate results in a csv file\n";
         $out .= "    {$d}ab path/to/ab   Path to ApacheBench\n";
+        $out .= "    {$d}ab_<xx> [val]   Pass to ApacheBench option xx with value \"val\"\n";
 
         $out .= "    {$d}h               Display usage information (this message)\n";
-        /*if ( $this->opts['outputformat'] == 'html' )
+        if ( $this->opts['outputformat'] == 'html' )
         {
-            $out .= "    {$d}php            path to php executable\n";
             $out .= '</pre>';
-        }*/
+        }
         return $out;
     }
 
