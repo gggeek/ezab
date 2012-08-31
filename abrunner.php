@@ -159,7 +159,11 @@ class ABRunner
 
         $this->echoMsg( "\n" );
         $this->echoMsg( "### End Time: $end\n" );
-        $this->echoMsg( "### Summary available in file: " . $opts['output_dir'] . '/' . $opts['summary_file'] );
+        $this->echoMsg( "### Summary available in file: " . $opts['output_dir'] . '/' . $opts['summary_file'] . "\n" );
+        if ( $aggfilename != '' )
+        {
+            $this->echoMsg( "### Aggregate data available in file: $aggfilename\n" );
+        }
     }
 
     protected function runTest( $ab, $url, $concurrency, $aggfilename='' )
