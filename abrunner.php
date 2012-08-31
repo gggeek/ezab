@@ -1,9 +1,11 @@
 <?php
 /**
- * A script to be of use for load testing scenarios.
- * It uses Apache bench (ab) to test a set of urls, with N iterations, writing
- * both detailed output and a summary file in a dedicated output directory.
- * Every test can be run both with and without keepalives
+ * A script to be used for load testing scenarios.
+ * It uses Apache bench (ab) to test a set of urls for many iterations, increasing
+ * concurrency count.
+ * Every test can be run both with and without keepalives.
+ * It writes both detailed output and a summary file in a dedicated output directory,
+ * as well as a csv file that is easy to use for producing graphs.
  *
  * @author G. Giunta
  * @license GNU GPL 2.0
@@ -168,7 +170,7 @@ class ABRunner
 
         $this->echoMsg( "\n" );
         $this->echoMsg( "### End Time: $end\n" );
-        $this->echoMsg( "### Summary available in " . $opts['output_dir'] . '/' . $opts['summary_file'] );
+        $this->echoMsg( "### Summary available in file: " . $opts['output_dir'] . '/' . $opts['summary_file'] );
     }
 
     protected function runTest( $ab, $url, $concurrency, $keepalive=true, $aggfilename='' )
@@ -190,51 +192,57 @@ class ABRunner
         $this->logMsg( $msg );
         $this->logMsg( "Command: $ab $args" );
 
-        exec( escapeshellcmd( $ab ) . ' ' . $args . " > " . $filename . '.txt', $resp, $retcode );
+        exec( escapeshellcmd( $ab ) . ' ' . $args, $out, $retcode );
+        $out = implode( "\n", $out );
+        file_put_contents( $filename . '.txt', "$ab $args\n\n" );
+        file_put_contents( $filename . '.txt', $out, FILE_APPEND );
 
-        $out = file_get_contents( $filename . '.txt' );
+        if ( $retcode !== 0 )
+        {
+            $this->echoMsg( "WARNING Error in executing ab. Hostname is possibly wrong\n", 0 );
+            return;
+        }
 
-        preg_match( '/^Requests per second: +([0-9.]+).+$/m', $out, $matches );
+        preg_match( '/^Requests per second: +([0-9.]+).*$/m', $out, $matches );
         $this->logMsg( $matches[0] );
         $rps = $matches[1];
-        preg_match( '/^Time per request: +([0-9.]+).+\(mean\).+$/m', $out, $matches );
+        preg_match( '/^Time per request: +([0-9.]+).+\(mean\).*$/m', $out, $matches );
         $this->logMsg( $matches[0] );
         $tpr = $matches[1];
-        preg_match( '/^Failed requests: +(\d+).+$/m', $out, $matches );
+        preg_match( '/^Failed requests: +(\d+).*$/m', $out, $matches );
         $this->logMsg( $matches[0] );
         $failed = $matches[1];
-
         $non2xx = 0;
-        if ( preg_match( '/^Non-2xx responses: +(\d+).+$/m', $out, $matches ) )
+        if ( preg_match( '/^Non-2xx responses: +(\d+).*$/m', $out, $matches ) )
         {
             $this->logMsg( $matches[0] );
             $non2xx = $matches[1];
         }
 
-
         if ( $non2xx == $total )
         {
-            $this->echoMsg( "WARNING ALL responses received non 200/OK. Url is most likely wrong" );
+            $this->echoMsg( "WARNING All responses received non 200/OK. Url is most likely wrong\n", 0 );
         }
         if ( $keepalive )
         {
             preg_match( '/^Keep-Alive requests:.+$/m', $out, $matches ) && $this->logMsg( $matches[0] );
-            if ( preg_match( '/^Keep-Alive requests: +(\d+).+?$/m', $out, $matches ) && $matches[1] === '0' )
+            if ( preg_match( '/^Keep-Alive requests: +(\d+).*?$/m', $out, $matches ) && $matches[1] === '0' )
             {
-                $this->echoMsg( "WARNING No keep-alive responses received. Keep-alive most likely disabled in server\n" );
+                $this->echoMsg( "WARNING No keep-alive responses received. Keep-alive most likely disabled in server\n", 0 );
             }
         }
+
         if ( $aggfilename )
         {
-            preg_match( '/^Time taken for tests: +([0-9.]+).+$/m', $out, $matches );
+            preg_match( '/^Time taken for tests: +([0-9.]+).*$/m', $out, $matches );
             $time = $matches[1];
-            preg_match( '/^Complete requests: +(\d+).+$/m', $out, $matches );
+            preg_match( '/^Complete requests: +(\d+).*$/m', $out, $matches );
             $completed = $matches[1];
-            preg_match( '/^Transfer rate: +(\d+).+$/m', $out, $matches );
+            preg_match( '/^Transfer rate: +(\d+).*$/m', $out, $matches );
             $tr = $matches[1];
-            preg_match( '/^ +90% +([0-9.]+).+$/m', $out, $matches );
+            preg_match( '/^ +90% +([0-9.]+).*$/m', $out, $matches );
             $ninety = $matches[1];
-            preg_match( '/^Total: +([0-9.]+) +([0-9.]+) +([0-9.]+) +([0-9.]+) +([0-9.]+).+$/m', $out, $matches );
+            preg_match( '/^Total: +([0-9.]+) +([0-9.]+) +([0-9.]+) +([0-9.]+) +([0-9.]+).*$/m', $out, $matches );
             $data = array( $concurrency, $rps, $tpr, $ninety, $matches[1], $matches[5], $matches[4], $matches[3], $tr, $time, $completed, $failed, $non2xx );
 
             file_put_contents( $aggfilename, implode( ';', $data ) . "\n", FILE_APPEND );
