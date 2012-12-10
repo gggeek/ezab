@@ -2,7 +2,7 @@
 /**
  * A script to be used for load testing scenarios.
  * It uses Apache bench (ab) to test a set of urls for many iterations, with
- * varying concurrency count.
+ * varying concurrency count and/or urls.
  * All ab options are supported (eg. using or not keepalives).
  * It writes in a dedicated output directory both detailed output and a summary file,
  * as well as a csv file that is easy to use for producing graphs.
@@ -12,7 +12,8 @@
  * @copyright (C) G. Giunta 2012
  *
  * @todo add more cli options: sleep time, verbosity, output dir and filename
- * @todo AB only does http 1.0 requests; it would be nice to use siege, which can do http 1.1 (or even php which uses curl)
+ * @todo AB only does http 1.0 requests; it would be nice to use siege, which can do http 1.1 - workaround: use ezab.php
+ * @todo for custom options, we should support the user using many times the same option (eg. -H for siege)
  */
 
 if ( !defined( 'ABRUNNER_AS_LIB' ) )
@@ -40,6 +41,7 @@ class ABRunner
         'label' => '',
         'server' => 'http://localhost',
         'urls' => 'index.php',
+        'urlsfile' => '',
         'repetitions' => 100,
         'concurrencies' => '1 10',
         'dognuplot' => false,
@@ -112,6 +114,19 @@ class ABRunner
 
         $ab = $this->getABExecutable( $opts['ab'] );
 
+        if ( $opts['urlsfile'] != '' )
+        {
+            if ( !is_readable( $opts['urlsfile'] ) )
+            {
+                $this->abort( 1, "Can not read urls file {$opts['urlsfile']}" );
+            }
+            $urls = file( $opts['urlsfile'], FILE_IGNORE_NEW_LINES & FILE_SKIP_EMPTY_LINES );
+        }
+        else
+        {
+            $urls = explode( ' ', $opts['urls'] );
+        }
+
         $start = date( DATE_RFC2822 );
 
         $this->echoMsg( "### Start Time: $start\n" );
@@ -125,28 +140,39 @@ class ABRunner
             $this->logMsg( "### Label: {$opts['label']}" );
         }
 
-        foreach( explode( ' ', $opts['urls'] ) as $url )
+        $concurrencies = explode( ' ', $opts['concurrencies'] );
+
+        foreach( $urls as $i => $url )
         {
+            $url = trim( $url );
             if ( $url == '' )
             {
                 continue;
             }
 
-            $aggfilename = '';
             if ( $this->opts['doaggregategraph'] )
             {
-                $aggfilename = $this->opts['output_dir'] . '/' . str_replace( '/', '_', "{$this->opts['label']}{$url}" ) . '.csv';
-                $header = "Concurrency;Requests per second;Time per request ms (mean);Time per request (90%);Time per request (min);Time per request (max);Time per request (median);Time per request (sd);Transfer rate Kb/s;Time taken;Completed;Failed;Non-2xx\n";
-                file_put_contents( $aggfilename, $header );
+                // in case we change url, but keep concurrency fixed, create a single aggregate graph
+                if ( $i == 0 || count( $concurrencies ) > 1 )
+                {
+                    $aggfilename = $this->opts['output_dir'] . '/' . str_replace( array( '/', '?', '&', '=', '#' ), '_', "{$this->opts['label']}{$url}" ) . '.csv';
+                    $header = "Concurrency;Requests per second;Time per request ms (mean);Time per request (90%);Time per request (min);Time per request (max);Time per request (median);Time per request (sd);Transfer rate Kb/s;Time taken;Completed;Failed;Non-2xx;URL\n";
+                    file_put_contents( $aggfilename, $header );
+                }
+            }
+            else
+            {
+                $aggfilename = '';
             }
 
-            foreach( explode( ' ', $opts['concurrencies'] ) as $concurrency )
+            foreach( $concurrencies as $concurrency )
             {
                 if ( (int) $concurrency <= 0 )
                 {
                     continue;
                 }
-                $this->runTest( $ab, $url, $concurrency, $aggfilename );
+                $logfilename = $this->opts['output_dir'] . '/' . str_replace( array( '/', '?', '&', '=', '#' ), '_', "{$this->opts['label']}{$url}_c{$concurrency}" );
+                $this->runABTest( $ab, $url, $concurrency, $logfilename, $aggfilename );
                 sleep( $opts['sleep'] );
             }
         }
@@ -166,13 +192,12 @@ class ABRunner
         }
     }
 
-    protected function runTest( $ab, $url, $concurrency, $aggfilename='' )
+    protected function runABTest( $ab, $url, $concurrency, $logfilename, $aggfilename='' )
     {
-        $filename = $this->opts['output_dir'] . '/' . str_replace( '/', '_', "{$this->opts['label']}{$url}_c{$concurrency}" );
         $gnuplot = '';
         if ( $this->opts['dognuplot'] )
         {
-            $gnuplot = '-g ' . escapeshellarg( $filename . '.csv' ) . ' ';
+            $gnuplot = '-g ' . escapeshellarg( $logfilename . '.csv' ) . ' ';
         }
         // we scale total requests with concurrency, to always have the same number of requests per client
         $total = $concurrency * $this->opts['repetitions'];
@@ -202,8 +227,8 @@ class ABRunner
 
         exec( escapeshellcmd( $ab ) . ' ' . $args, $out, $retcode );
         $out = implode( "\n", $out );
-        file_put_contents( $filename . '.txt', "$ab $args\n\n" );
-        file_put_contents( $filename . '.txt', $out, FILE_APPEND );
+        file_put_contents( $logfilename . '.txt', "$ab $args\n\n" );
+        file_put_contents( $logfilename . '.txt', $out, FILE_APPEND );
 
         if ( $retcode !== 0 )
         {
@@ -251,7 +276,7 @@ class ABRunner
             preg_match( '/^ +90% +([0-9.]+).*$/m', $out, $matches );
             $ninety = $matches[1];
             preg_match( '/^Total: +([0-9.]+) +([0-9.]+) +([0-9.]+) +([0-9.]+) +([0-9.]+).*$/m', $out, $matches );
-            $data = array( $concurrency, $rps, $tpr, $ninety, $matches[1], $matches[5], $matches[4], $matches[3], $tr, $time, $completed, $failed, $non2xx );
+            $data = array( $concurrency, $rps, $tpr, $ninety, $matches[1], $matches[5], $matches[4], $matches[3], $tr, $time, $completed, $failed, $non2xx, $url );
 
             file_put_contents( $aggfilename, implode( ';', $data ) . "\n", FILE_APPEND );
         }
@@ -268,7 +293,7 @@ class ABRunner
             {
                 return $ab;
             }
-            if ( php_sapi_name() == 'cli' )
+            if ( php_sapi_name() == 'cli' && function_exists( 'readline' ) )
             {
                 $input = readline( 'Enter path to ApacheBench executable ( or [q] to quit )' );
                 if ( $input === 'q' )
@@ -291,7 +316,7 @@ class ABRunner
     public function parseArgs( $argv )
     {
         $options = array(
-            's', 'u', 'h', 'help', 'c', 'r', 'l', 'g', 'a', 'V', 'ab'
+            's', 'u', 'h', 'help', 'c', 'r', 'l', 'g', 'a', 'V', 'ab', 'f'
         );
         $singleoptions = array( 'h', 'help', 'g', 'a', 'V' );
 
@@ -405,6 +430,9 @@ class ABRunner
                     case 'ab':
                         $opts['ab'] = $val;
                         break;
+                   case 'f':
+                        $opts['urlsfile'] = $val;
+                        break;
                     default:
                         // unknown option
                         echo $this->helpMsg();
@@ -456,11 +484,12 @@ class ABRunner
         $out .= "Options are:\n";
         $out .= "    {$d}s server        Server hostname (the prefix for urls below). Defaults to \"http://localhost\"\n";
         $out .= "    {$d}u urls          List of urls to test. Use double quotes around, separate them with spaces. Defaults to \"index.php\"\n";
+        $out .= "    {$d}f file          File with list of urls to test (alternative to -u)\n";
         $out .= "    {$d}c concurrencies List of concurrent clients to use. Use double quotes around, separate them with spaces. Defaults to \"1 10\"\n";
         $out .= "    {$d}r repetitions   The number of times each client requests each url. Defaults to 100\n";
         $out .= "    {$d}l label         Use a label for this test run. Will be used as prefix for all output filenames except summary\n";
         $out .= "    {$d}g               Save gnuplot detail files too (allows graphing results of every ab invocation)\n";
-        $out .= "    {$d}a               Save aggregate results in a csv file\n";
+        $out .= "    {$d}a               Save aggregate results in a csv file (one per url)\n";
         $out .= "    {$d}ab path/to/ab   Path to ApacheBench\n";
         $out .= "    {$d}ab_<xx> [val]   Pass to ApacheBench option xx with value \"val\"\n";
 
