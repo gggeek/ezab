@@ -273,9 +273,16 @@ class ABRunner
             $completed = $matches[1];
             preg_match( '/^Transfer rate: +(\d+).*$/m', $out, $matches );
             $tr = $matches[1];
-            preg_match( '/^ +90% +([0-9.]+).*$/m', $out, $matches );
-            $ninety = $matches[1];
             preg_match( '/^Total: +([0-9.]+) +([0-9.]+) +([0-9.]+) +([0-9.]+) +([0-9.]+).*$/m', $out, $matches );
+            if ( $total == 1 )
+            {
+                $ninety = $matches[1];
+            }
+            else
+            {
+                preg_match( '/^ +90% +([0-9.]+).*$/m', $out, $nmatches );
+                $ninety = $nmatches[1];
+            }
             $data = array( $concurrency, $rps, $tpr, $ninety, $matches[1], $matches[5], $matches[4], $matches[3], $tr, $time, $completed, $failed, $non2xx, $url );
 
             file_put_contents( $aggfilename, implode( ';', $data ) . "\n", FILE_APPEND );
