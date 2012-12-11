@@ -236,7 +236,7 @@ class ABRunner
             return;
         }
 
-        if ( !preg_match( '/\(be patient\)\.\.\.\.\.done$/m', $out ) )
+        if ( !preg_match( '/^Transfer rate:/m', $out ) )
         {
             $this->echoMsg( "WARNING Error in executing ab. Command output unexpected/incomplete - check it in $logfilename.txt\n", 0 );
             return;
