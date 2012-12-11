@@ -1,7 +1,7 @@
 <?php
 /**
  * A script to be used for load testing scenarios.
- * It uses Apache bench (ab) to test a set of urls for many iterations, with
+ * It uses Apache Bench (ab) to test a set of urls for many iterations, with
  * varying concurrency count and/or urls.
  * All ab options are supported (eg. using or not keepalives).
  * It writes in a dedicated output directory both detailed output and a summary file,
@@ -11,7 +11,7 @@
  * @license GNU GPL 2.0
  * @copyright (C) G. Giunta 2012
  *
- * @todo add more cli options: sleep time, verbosity, output dir and filename
+ * @todo add more cli options: verbosity
  * @todo AB only does http 1.0 requests; it would be nice to use siege, which can do http 1.1 - workaround: use ezab.php
  * @todo for custom options, we should support the user using many times the same option (eg. -H for siege)
  */
@@ -26,7 +26,7 @@ if ( !defined( 'ABRUNNER_AS_LIB' ) )
     }
     else
     {
-        die ( "Sorry, web interface not yet developed..." );
+        die( "Sorry, web interface not yet developed..." );
         // parse options in array format (die with help msg if needed)
         $ab->parseOpts( $_GET );
     }
@@ -47,11 +47,11 @@ class ABRunner
         'dognuplot' => false,
         'doaggregategraph' => false,
         'ab' => 'ab',
-
-        // 'internal' options
         'summary_file' => 'summary.txt',
         'output_dir' => 'test_logs',
         'sleep' => 1,
+
+        // 'internal' options
         'verbosity' => 1,
         'self' => __FILE__,
         'outputformat' => 'text',
@@ -236,6 +236,12 @@ class ABRunner
             return;
         }
 
+        if ( !preg_match( '/\(be patient\)\.\.\.\.\.done$/m', $out ) )
+        {
+            $this->echoMsg( "WARNING Error in executing ab. Command output unexpected/incomplete - check it in $logfilename.txt\n", 0 );
+            return;
+        }
+
         preg_match( '/^Requests per second: +([0-9.]+).*$/m', $out, $matches );
         $this->logMsg( $matches[0] );
         $rps = $matches[1];
@@ -323,7 +329,7 @@ class ABRunner
     public function parseArgs( $argv )
     {
         $options = array(
-            's', 'u', 'h', 'help', 'c', 'r', 'l', 'g', 'a', 'V', 'ab', 'f'
+            's', 'u', 'h', 'help', 'c', 'r', 'l', 'g', 'a', 'V', 'ab', 'f', 'm', 'w'
         );
         $singleoptions = array( 'h', 'help', 'g', 'a', 'V' );
 
@@ -437,8 +443,17 @@ class ABRunner
                     case 'ab':
                         $opts['ab'] = $val;
                         break;
-                   case 'f':
+                    case 'f':
                         $opts['urlsfile'] = $val;
+                        break;
+                    case 'm':
+                        $opts['summary_file'] = $val;
+                        break;
+                    case 'd':
+                        $opts['output_dir'] = $val;
+                        break;
+                    case 'w':
+                        $opts['sleep'] = (int)$val;
                         break;
                     default:
                         // unknown option
@@ -494,7 +509,10 @@ class ABRunner
         $out .= "    {$d}f file          File with list of urls to test (alternative to -u)\n";
         $out .= "    {$d}c concurrencies List of concurrent clients to use. Use double quotes around, separate them with spaces. Defaults to \"1 10\"\n";
         $out .= "    {$d}r repetitions   The number of times each client requests each url. Defaults to 100\n";
+        $out .= "    {$d}w seconds       The time to wait between each run. Defaults to 1\n";
         $out .= "    {$d}l label         Use a label for this test run. Will be used as prefix for all output filenames except summary\n";
+        $out .= "    {$d}m summary_file  Name for summary file. Defaults to summary.txt\n";
+        $out .= "    {$d}d output_dir    Name for ouput dir. Defaults to test_logs\n";
         $out .= "    {$d}g               Save gnuplot detail files too (allows graphing results of every ab invocation)\n";
         $out .= "    {$d}a               Save aggregate results in a csv file (one per url)\n";
         $out .= "    {$d}ab path/to/ab   Path to ApacheBench\n";
