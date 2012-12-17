@@ -273,7 +273,7 @@ class eZAB
         $outputs = array();
         foreach( $childrensults as $i => $res )
         {
-            if ( $res['return'] != 0 || $res['output'] == '' )
+            if ( $res['exitcode'] != 0 || $res['output'] == '' )
             {
                 $this->abort( 1, "Child process $i did not terminate correctly. Exiting" );
             }
