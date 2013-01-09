@@ -19,7 +19,7 @@
  * @todo parse more stats from children (same format as ab does), eg. print connect times, nr. of keepalives etc...
  * @todo check if all our calculation methods are the same as used by ab
  * @todo add some nice graph output, as eg. abgraph does
- * @todo add named constants for verbosity levels; decide what is ouput at each level (currently used: 1 to 4)
+ * @todo !important add named constants for verbosity levels; review what is ouput at each level (currently used: 1 to 4)
  * @todo !important add an option for a custom dir for traces/logfiles
  * @todo !important raise php timeout if run() is called not from cli
  * @todo !important in web mode, display a form to be filled by user that triggers the request
@@ -69,6 +69,7 @@ class eZAB
         'interface' => '',
         'respencoding' => false,
         'httpversion' => CURL_HTTP_VERSION_NONE,
+        'cookies' => array(),
 
         // 'internal' options
         'childnr' => false,
@@ -189,6 +190,10 @@ class eZAB
         else if ( $opts['httpversion'] == CURL_HTTP_VERSION_1_1 )
         {
             $args .= " -1";
+        }
+        foreach( $opts['cookies'] as $c )
+        {
+             $args .= " -C " . escapeshellarg( $c );
         }
         $args .= " -v " . $opts['verbosity'];
         $args .= " " . escapeshellarg( $opts['target'] );
@@ -440,9 +445,11 @@ class eZAB
             {
                 curl_setopt( $curl, CURLOPT_ENCODING, '' );
             }
-            //var_dump( $opts['httpversion'] );
-            //die();
             curl_setopt( $curl, CURLOPT_HTTP_VERSION, $opts['httpversion'] );
+            if ( count( $opts['cookies'] ) )
+            {
+                curl_setopt( $curl, CURLOPT_COOKIE, implode( '; ', $opts['cookies'] ) );
+            }
             if ( $opts['verbosity'] > 1 )
             {
                 // We're writing curl data to files instead of piping it back to the parent because:
@@ -702,7 +709,7 @@ class eZAB
     public function parseArgs( $argv )
     {
         $options = array(
-            'A', 'B', 'h', 'help', 'child', 'c', 'i', 'j', 'k', 'n',  'P', 'parent', 'php', 't', 'V', 'v', 'X', '1', '0'
+            'A', 'B', 'h', 'help', 'child', 'c', 'i', 'j', 'k', 'n',  'P', 'parent', 'php', 't', 'V', 'v', 'X', '1', '0', 'C'
         );
         $singleoptions = array( 'h', 'help', 'i', 'j', 'k', 'V', '1', '0' );
 
@@ -824,6 +831,9 @@ class eZAB
                     case '1':
                         $opts['httpversion'] = CURL_HTTP_VERSION_1_1;
                         break;
+                    case 'C':
+                        $opts['cookies'][] = $val;
+                        break;
                     default:
                         // unknown option
                         echo $this->helpMsg();
@@ -918,6 +928,10 @@ class eZAB
                     break;
                 case '1':
                     $opts['httpversion'] = CURL_HTTP_VERSION_1_1;
+                    unset( $opts[$key] );
+                    break;
+                case 'C':
+                    $opts['cookies'] = $val;
                     unset( $opts[$key] );
                     break;
             }
