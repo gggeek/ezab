@@ -14,12 +14,12 @@
  * your app and use it as a plain php class, by defining the EZAB_AS_LIB constant
  * before including this file.
  *
- * @todo allow setting more curl options: timeouts, http 1.0 vs 1.1, resp. compression
+ * @todo allow setting more curl options: timeouts, resp. compression
  * @todo verify if we do proper curl error checking for all cases (404 tested)
  * @todo parse more stats from children (same format as ab does), eg. print connect times, nr. of keepalives etc...
  * @todo check if all our calculation methods are the same as used by ab
  * @todo add some nice graph output, as eg. abgraph does
- * @todo add named constants for verbosity levels; decide what is ouput at each level (currently used: 2 and 9)
+ * @todo add named constants for verbosity levels; decide what is ouput at each level (currently used: 1 to 4)
  * @todo !important add an option for a custom dir for traces/logfiles
  * @todo !important raise php timeout if run() is called not from cli
  * @todo !important in web mode, display a form to be filled by user that triggers the request
@@ -53,7 +53,10 @@ class eZAB
     static $version = '0.3-dev';
     static $defaults = array(
         // 'real' options
-        'verbosity' => 1, // -v verbosity    How much troubleshooting info to print
+        /// How much troubleshooting info to print. According to ab docs:
+        /// "4 and above prints information on headers, 3 and above prints response codes (404, 200, etc.), 2 and above prints warnings and info."
+        /// Real life testing seem to tell a different story though...
+        'verbosity' => 1, // -v verbosity
         'children' => 1, // -c concurrency  Number of multiple requests to make
         'tries' => 1, // -n requests     Number of requests to perform
         'timeout' => 0, // -t timelimit    Seconds to max. wait for responses
@@ -65,6 +68,7 @@ class eZAB
         'head' => false,
         'interface' => '',
         'respencoding' => false,
+        'httpversion' => CURL_HTTP_VERSION_NONE,
 
         // 'internal' options
         'childnr' => false,
@@ -144,8 +148,8 @@ class eZAB
         $this->echoMsg( "Benchmarking {$opts['target']} (please be patient)...\n" );
 
         // != from ab output
-        $this->echoMsg( "\nRunning {$opts['tries']} requests with {$opts['children']} parallel processes\n", 2 );
-        $this->echoMsg( "----------------------------------------\n", 2 );
+        $this->echoMsg( "\nRunning {$opts['tries']} requests with {$opts['children']} parallel processes\n", 3 );
+        $this->echoMsg( "----------------------------------------\n", 3 );
 
         /// @todo !important move cli opts reconstruction to a separate function
         $args = "--parent " . $opts['parentid'];
@@ -177,6 +181,14 @@ class eZAB
         if ( $opts['respencoding'] )
         {
              $args .= " -j";
+        }
+        if ( $opts['httpversion'] == CURL_HTTP_VERSION_1_0 )
+        {
+            $args .= " -0";
+        }
+        else if ( $opts['httpversion'] == CURL_HTTP_VERSION_1_1 )
+        {
+            $args .= " -1";
         }
         $args .= " -v " . $opts['verbosity'];
         $args .= " " . escapeshellarg( $opts['target'] );
@@ -211,7 +223,7 @@ class eZAB
                 //$this->abort( 1, "Child process $i did not start correctly. Exiting" );
             }
 
-            $this->echoMsg( "Launched child $i [ $exec ]\n", 2 );
+            $this->echoMsg( "Launched child $i [ $exec ]\n", 3 );
             flush();
         }
 
@@ -255,20 +267,43 @@ class eZAB
 
         //$time = microtime( true ) - $time;
 
+        $srv = '[NA]';
+        if ( $opts['verbosity'] >= 2 )
+        {
+            $out = file_get_contents( basename( $opts['parentid'] ) . '.0.trc' );
+            $out = preg_replace( '/^(\*.+)$/m', '', $out );
+            $out = preg_replace( '/[\n]+/', "\n", $out );
+            $this->echoMsg( $out, 2 );
+
+            if ( preg_match( '/^< Server: +(.+)$/m', $out, $matches ) )
+            {
+                $srv = $matches[1];
+            }
+
+            // for verbose levels 3 and above, keep trace files on disk
+            if ( $opts['verbosity'] == 2 )
+            {
+                for ( $i = 0; $i < $opts['children']; $i++ )
+                {
+                    @unlink( basename( $opts['parentid'] ) . ".$i.trc" );
+                }
+            }
+        }
+
         $this->echoMsg( "done\n" );
 
         // print results
 
         // != from ab output
-        $this->echoMsg( "\nChildren output:\n----------------------------------------\n", 2 );
+        $this->echoMsg( "\nChildren output:\n----------------------------------------\n", 3 );
         for ( $i = 0; $i < $opts['children']; $i++ )
         {
             /// @todo beautify
-            $this->echoMsg( $childrensults[$i]['output'] . "\n", 2 );
+            $this->echoMsg( $childrensults[$i]['output'] . "\n", 3 );
         }
 
-        $this->echoMsg( "\nChildren details:\n----------------------------------------\n", 9 );
-        $this->echoMsg( var_export( $childrensults, true ), 9 );
+        $this->echoMsg( "\nChildren details:\n----------------------------------------\n", 4 );
+        $this->echoMsg( var_export( $childrensults, true ), 4 );
 
         $outputs = array();
         foreach( $childrensults as $i => $res )
@@ -283,7 +318,7 @@ class eZAB
 
         $this->echoMsg( "\n\n" );
 
-        $this->echoMsg( "\nSummary:\n----------------------------------------\n", 2 );
+        $this->echoMsg( "\nSummary:\n----------------------------------------\n", 3 );
 
         $sizes = array_keys( $data['sizes'] );
         $url = parse_url( $opts['target'] );
@@ -296,7 +331,7 @@ class eZAB
             $url['path'] = '/';
         }
         $this->echoMsg(
-            "Server Software:        [NA]\n" .
+            "Server Software:        {$srv}\n" .
             "Server Hostname:        {$url['host']}\n" .
             "Server Port:            {$url['port']}\n" .
             "\n" .
@@ -405,7 +440,10 @@ class eZAB
             {
                 curl_setopt( $curl, CURLOPT_ENCODING, '' );
             }
-            if ( $opts['verbosity'] > 8 )
+            //var_dump( $opts['httpversion'] );
+            //die();
+            curl_setopt( $curl, CURLOPT_HTTP_VERSION, $opts['httpversion'] );
+            if ( $opts['verbosity'] > 1 )
             {
                 // We're writing curl data to files instead of piping it back to the parent because:
                 // 1. it might be a lot of data, and there are apparently limited buffers php has for pipes
@@ -475,7 +513,7 @@ class eZAB
         }
         //$ttime = microtime( true ) - $ttime;
 
-        if ( $opts['verbosity'] > 8 )
+        if ( $opts['verbosity'] > 1 )
         {
             fclose( $logfp );
         }
@@ -664,9 +702,9 @@ class eZAB
     public function parseArgs( $argv )
     {
         $options = array(
-            'A', 'B', 'h', 'help', 'child', 'c', 'i', 'j', 'k', 'n',  'P', 'parent', 'php', 't', 'V', 'v', 'X'
+            'A', 'B', 'h', 'help', 'child', 'c', 'i', 'j', 'k', 'n',  'P', 'parent', 'php', 't', 'V', 'v', 'X', '1', '0'
         );
-        $singleoptions = array( 'h', 'help', 'i', 'j', 'k', 'V' );
+        $singleoptions = array( 'h', 'help', 'i', 'j', 'k', 'V', '1', '0' );
 
         $longoptions = array();
         foreach( $options as $o )
@@ -780,6 +818,12 @@ class eZAB
                     case 'X':
                         $opts['proxy'] = $val;
                         break;
+                    case '0':
+                        $opts['httpversion'] = CURL_HTTP_VERSION_1_0;
+                        break;
+                    case '1':
+                        $opts['httpversion'] = CURL_HTTP_VERSION_1_1;
+                        break;
                     default:
                         // unknown option
                         echo $this->helpMsg();
@@ -868,6 +912,14 @@ class eZAB
                     $opts['proxy'] = $val;
                     unset( $opts[$key] );
                     break;
+                case '0':
+                    $opts['httpversion'] = CURL_HTTP_VERSION_1_0;
+                    unset( $opts[$key] );
+                    break;
+                case '1':
+                    $opts['httpversion'] = CURL_HTTP_VERSION_1_1;
+                    unset( $opts[$key] );
+                    break;
             }
         }
         // $this->opts is initialized by the constructor
@@ -915,6 +967,8 @@ class eZAB
         $out .= "    {$d}X proxy:port   Proxyserver and port number to use\n";
         $out .= "    {$d}V              Print version number and exit\n";
         $out .= "    {$d}k              Use HTTP KeepAlive feature\n";
+        $out .= "    {$d}1              Use HTTP 1.1 (default)\n";
+        $out .= "    {$d}0              Use HTTP 1.0 (nb: keepalive not supported in this case)\n";
 
         // extra functionality
         if ( defined( 'CURLOPT_ENCODING' ) ) $out .= "    {$d}j              Use HTTP Response Compression feature\n";
