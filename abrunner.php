@@ -302,7 +302,7 @@ class ABRunner
         {
             $output = array();
             exec( escapeshellcmd( $ab ) . ' -V', $output );
-            if ( count( $output ) && strpos( $output[0], 'ApacheBench' ) !== false )
+            if ( count( $output ) && ( strpos( $output[0], 'ApacheBench' ) !== false || strpos( $output[0], 'eZAB' ) !== false ) )
             {
                 return $ab;
             }
