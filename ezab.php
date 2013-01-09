@@ -70,6 +70,7 @@ class eZAB
         'respencoding' => false,
         'httpversion' => CURL_HTTP_VERSION_NONE,
         'cookies' => array(),
+        'skippercentiles' => false,
 
         // 'internal' options
         'childnr' => false,
@@ -335,6 +336,22 @@ class eZAB
         {
             $url['path'] = '/';
         }
+
+        $pcs = '';
+        if ( !$opts['skippercentiles'] )
+        {
+            $pcs = "\nPercentage of the requests served within a certain time (ms)\n" .
+            "  50% " . sprintf( '%6u', $data['t_percentiles'][50] ) . "\n" .
+            "  66% " . sprintf( '%6u', $data['t_percentiles'][66] ) . "\n" .
+            "  75% " . sprintf( '%6u', $data['t_percentiles'][75] ) . "\n" .
+            "  80% " . sprintf( '%6u', $data['t_percentiles'][80] ) . "\n" .
+            "  90% " . sprintf( '%6u', $data['t_percentiles'][90] ) . "\n" .
+            "  95% " . sprintf( '%6u', $data['t_percentiles'][95] ) . "\n" .
+            "  98% " . sprintf( '%6u', $data['t_percentiles'][98] ) . "\n" .
+            "  99% " . sprintf( '%6u', $data['t_percentiles'][99] ) . "\n" .
+            " 100% " . sprintf( '%6u', $data['t_max'] * 1000 ) . " (longest request)";
+        }
+
         $this->echoMsg(
             "Server Software:        {$srv}\n" .
             "Server Hostname:        {$url['host']}\n" .
@@ -363,16 +380,7 @@ class eZAB
             //"Waiting:     [NA]  [NA]   [NA]   [NA]  [NA]\n" .
             /// @todo better formatting if numbers go over 5 digits (roughly 2 minutes)
             "Total:      " . sprintf( '%5u', $data['t_min'] * 1000 ) . " " . sprintf( '%5u', $data['t_avg'] * 1000 ) . "  " . sprintf( '%5.1f', $data['t_stdddev'] ). "  ". sprintf( '%5u', $data['t_median'] ) . " " . sprintf( '%5u', $data['t_max'] * 1000 ) . "\n" .
-            "\nPercentage of the requests served within a certain time (ms)\n" .
-            "  50% " . sprintf( '%6u', $data['t_percentiles'][50] ) . "\n" .
-            "  66% " . sprintf( '%6u', $data['t_percentiles'][66] ) . "\n" .
-            "  75% " . sprintf( '%6u', $data['t_percentiles'][75] ) . "\n" .
-            "  80% " . sprintf( '%6u', $data['t_percentiles'][80] ) . "\n" .
-            "  90% " . sprintf( '%6u', $data['t_percentiles'][90] ) . "\n" .
-            "  95% " . sprintf( '%6u', $data['t_percentiles'][95] ) . "\n" .
-            "  98% " . sprintf( '%6u', $data['t_percentiles'][98] ) . "\n" .
-            "  99% " . sprintf( '%6u', $data['t_percentiles'][99] ) . "\n" .
-            " 100% " . sprintf( '%6u', $data['t_max'] * 1000 ) . " (longest request)"
+            $pcs
         );
 
         return array(
@@ -709,9 +717,9 @@ class eZAB
     public function parseArgs( $argv )
     {
         $options = array(
-            'A', 'B', 'h', 'help', 'child', 'c', 'i', 'j', 'k', 'n',  'P', 'parent', 'php', 't', 'V', 'v', 'X', '1', '0', 'C'
+            'A', 'B', 'h', 'help', 'child', 'c', 'i', 'j', 'k', 'n',  'P', 'parent', 'php', 't', 'V', 'v', 'X', '1', '0', 'C', 'd'
         );
-        $singleoptions = array( 'h', 'help', 'i', 'j', 'k', 'V', '1', '0' );
+        $singleoptions = array( 'h', 'help', 'i', 'j', 'k', 'V', '1', '0', 'd' );
 
         $longoptions = array();
         foreach( $options as $o )
@@ -834,6 +842,9 @@ class eZAB
                     case 'C':
                         $opts['cookies'][] = $val;
                         break;
+                    case 'd':
+                        $opts['skippercentiles'] = true;
+                        break;
                     default:
                         // unknown option
                         echo $this->helpMsg();
@@ -934,6 +945,10 @@ class eZAB
                     $opts['cookies'] = $val;
                     unset( $opts[$key] );
                     break;
+                case 'd':
+                    $opts['skippercentiles'] = true;
+                    unset( $opts[$key] );
+                    break;
             }
         }
         // $this->opts is initialized by the constructor
@@ -974,6 +989,7 @@ class eZAB
         $out .= "    {$d}B address      Address to bind to when making outgoing connections\n";
         $out .= "    {$d}v verbosity    How much troubleshooting info to print\n";
         $out .= "    {$d}i              Use HEAD instead of GET\n";
+        $out .= "    {$d}C attribute    Add cookie, eg. 'Apache=1234'. (repeatable)\n";
         $out .= "    {$d}A attribute    Add Basic WWW Authentication, the attributes\n";
         $out .= "                    are a colon separated username and password.\n";
         $out .= "    {$d}P attribute    Add Basic Proxy Authentication, the attributes\n";
@@ -981,6 +997,7 @@ class eZAB
         $out .= "    {$d}X proxy:port   Proxyserver and port number to use\n";
         $out .= "    {$d}V              Print version number and exit\n";
         $out .= "    {$d}k              Use HTTP KeepAlive feature\n";
+        $out .= "    {$d}d              Do not show percentiles served table.\n";
         $out .= "    {$d}1              Use HTTP 1.1 (default)\n";
         $out .= "    {$d}0              Use HTTP 1.0 (nb: keepalive not supported in this case)\n";
 
