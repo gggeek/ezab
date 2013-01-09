@@ -14,7 +14,7 @@
  * your app and use it as a plain php class, by defining the EZAB_AS_LIB constant
  * before including this file.
  *
- * @todo allow setting more curl options: timeouts, resp. compression
+ * @todo allow setting more curl options: PUT, POST, exit on socket receive error
  * @todo verify if we do proper curl error checking for all cases (404 tested)
  * @todo parse more stats from children (same format as ab does), eg. print connect times, nr. of keepalives etc...
  * @todo check if all our calculation methods are the same as used by ab
@@ -71,6 +71,7 @@ class eZAB
         'httpversion' => CURL_HTTP_VERSION_NONE,
         'cookies' => array(),
         'skippercentiles' => false,
+        'extraheaders' => array(),
 
         // 'internal' options
         'childnr' => false,
@@ -195,6 +196,10 @@ class eZAB
         foreach( $opts['cookies'] as $c )
         {
              $args .= " -C " . escapeshellarg( $c );
+        }
+        foreach( $opts['extraheaders'] as $h )
+        {
+             $args .= " -H " . escapeshellarg( $h );
         }
         $args .= " -v " . $opts['verbosity'];
         $args .= " " . escapeshellarg( $opts['target'] );
@@ -458,6 +463,10 @@ class eZAB
             {
                 curl_setopt( $curl, CURLOPT_COOKIE, implode( '; ', $opts['cookies'] ) );
             }
+            if ( count( $opts['extraheaders'] ) )
+            {
+                curl_setopt( $curl, CURLOPT_HTTPHEADER, $opts['extraheaders'] );
+            }
             if ( $opts['verbosity'] > 1 )
             {
                 // We're writing curl data to files instead of piping it back to the parent because:
@@ -717,7 +726,7 @@ class eZAB
     public function parseArgs( $argv )
     {
         $options = array(
-            'A', 'B', 'h', 'help', 'child', 'c', 'i', 'j', 'k', 'n',  'P', 'parent', 'php', 't', 'V', 'v', 'X', '1', '0', 'C', 'd'
+            'A', 'B', 'h', 'help', 'child', 'c', 'i', 'j', 'k', 'n',  'P', 'parent', 'php', 't', 'V', 'v', 'X', '1', '0', 'C', 'd', 'H'
         );
         $singleoptions = array( 'h', 'help', 'i', 'j', 'k', 'V', '1', '0', 'd' );
 
@@ -845,6 +854,9 @@ class eZAB
                     case 'd':
                         $opts['skippercentiles'] = true;
                         break;
+                    case 'H':
+                        $opts['extraheaders'][] = $val;
+                        break;
                     default:
                         // unknown option
                         echo $this->helpMsg();
@@ -949,6 +961,10 @@ class eZAB
                     $opts['skippercentiles'] = true;
                     unset( $opts[$key] );
                     break;
+                case 'H':
+                    $opts['extraheaders'] = $val;
+                    unset( $opts[$key] );
+                    break;
             }
         }
         // $this->opts is initialized by the constructor
@@ -992,6 +1008,8 @@ class eZAB
         $out .= "    {$d}C attribute    Add cookie, eg. 'Apache=1234'. (repeatable)\n";
         $out .= "    {$d}A attribute    Add Basic WWW Authentication, the attributes\n";
         $out .= "                    are a colon separated username and password.\n";
+        $out .= "    {$d}H attribute    Add Arbitrary header line, eg. 'Accept-Encoding: gzip'\n";
+        $out .= "                    Inserted after all normal header lines. (repeatable)\n";
         $out .= "    {$d}P attribute    Add Basic Proxy Authentication, the attributes\n";
         $out .= "                    are a colon separated username and password.\n";
         $out .= "    {$d}X proxy:port   Proxyserver and port number to use\n";
