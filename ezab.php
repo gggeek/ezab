@@ -16,10 +16,10 @@
  *
  * @todo allow setting more curl options: timeouts, http 1.0 vs 1.1, resp. compression
  * @todo verify if we do proper curl error checking for all cases (404 tested)
- * @todo parse more stats from children (same format as ab does), eg. print min, max, resp. times, connect times, nr. of keepalives etc...
+ * @todo parse more stats from children (same format as ab does), eg. print connect times, nr. of keepalives etc...
  * @todo check if all our calculation methods are the same as used by ab
  * @todo add some nice graph output, as eg. abgraph does
- * @todo add named constants for verbosity levels; decide wht is ouput at each level (currently used: 2 and 9)
+ * @todo add named constants for verbosity levels; decide what is ouput at each level (currently used: 2 and 9)
  * @todo !important add an option for a custom dir for traces/logfiles
  * @todo !important raise php timeout if run() is called not from cli
  * @todo !important in web mode, display a form to be filled by user that triggers the request
@@ -230,7 +230,7 @@ class eZAB
                 {
                     /// @todo see note from Lachlan Mulcahy on http://it.php.net/manual/en/function.proc-get-status.php:
                     ///       to make sure buffers are not blocking children, we should read rom their pipes every now and then
-                    ///       (but not on windows, since pipes are blocking and can not be timeoudt, see https://bugs.php.net/bug.php?id=54717)
+                    ///       (but not on windows, since pipes are blocking and can not be timedout, see https://bugs.php.net/bug.php?id=54717)
                     $status = proc_get_status( $childprocs[$i] );
                     if ( $status['running'] == false )
                     {
@@ -315,7 +315,24 @@ class eZAB
             "Requests per second:    " . sprintf( '%.2f', $data['rps'] ) . " [#/sec] (mean)\n" . // NB: includes failures
             "Time per request:       " . sprintf( '%.3f', $data['t_avg'] * 1000 ) . " [ms] (mean)\n" . // NB: excludes failures
             "Time per request:       [NA] [ms] (mean, across all concurrent requests)\n" .
-            "Transfer rate:          " . sprintf( '%.2f', $data['tot_bytes'] / ( 1024 * $data['tot_time'] ) ) . " [Kbytes/sec] received\n"
+            "Transfer rate:          " . sprintf( '%.2f', $data['tot_bytes'] / ( 1024 * $data['tot_time'] ) ) . " [Kbytes/sec] received\n" .
+            "\nConnection Times (ms)\n" .
+            "              min  mean[+/-sd] median   max\n" .
+            //"Connect:     [NA]  [NA]   [NA]   [NA]  [NA]\n" .
+            //"Processing:  [NA]  [NA]   [NA]   [NA]  [NA]\n" .
+            //"Waiting:     [NA]  [NA]   [NA]   [NA]  [NA]\n" .
+            /// @todo better formatting if numbers go over 5 digits (roughly 2 minutes)
+            "Total:      " . sprintf( '%5u', $data['t_min'] * 1000 ) . " " . sprintf( '%5u', $data['t_avg'] * 1000 ) . "  " . sprintf( '%5.1f', $data['t_stdddev'] ). "  ". sprintf( '%5u', $data['t_median'] ) . " " . sprintf( '%5u', $data['t_max'] * 1000 ) . "\n" .
+            "\nPercentage of the requests served within a certain time (ms)\n" .
+            "  50% " . sprintf( '%6u', $data['t_percentiles'][50] ) . "\n" .
+            "  66% " . sprintf( '%6u', $data['t_percentiles'][66] ) . "\n" .
+            "  75% " . sprintf( '%6u', $data['t_percentiles'][75] ) . "\n" .
+            "  80% " . sprintf( '%6u', $data['t_percentiles'][80] ) . "\n" .
+            "  90% " . sprintf( '%6u', $data['t_percentiles'][90] ) . "\n" .
+            "  95% " . sprintf( '%6u', $data['t_percentiles'][95] ) . "\n" .
+            "  98% " . sprintf( '%6u', $data['t_percentiles'][98] ) . "\n" .
+            "  99% " . sprintf( '%6u', $data['t_percentiles'][99] ) . "\n" .
+            " 100% " . sprintf( '%6u', $data['t_max'] * 1000 ) . " (longest request)"
         );
 
         return array(
@@ -344,7 +361,8 @@ class eZAB
             't_avg' => 0,
             'begin' => 0.0, // secs (float)
             'end' => 0.0, // secs (float)
-            'sizes' => array() // index: size in bytes, value: nr. of responses received with that size
+            'sizes' => array(), // index: size in bytes, value: nr. of responses received with that size
+            'times' => array() // index: time in msec (int), value: nr. of responses received with that time
         );
 
         //$ttime = microtime( true );
@@ -437,6 +455,8 @@ class eZAB
                     $resp['sizes'][$html_size] = isset( $resp['sizes'][$html_size] ) ? ( $resp['sizes'][$html_size] + 1 ) : 1;
                     $resp['html_bytes'] += (float)$html_size;
                     $resp['tot_bytes'] += (float)$tot_size;
+                    $timemsec = (int) ( $time * 1000 );
+                    $resp['times'][$timemsec] = isset( $resp['times'][$timemsec] ) ? ( $resp['times'][$timemsec] + 1 ) : 1;
                 }
                 if ( $i == 0 )
                 {
@@ -477,7 +497,15 @@ class eZAB
         {
             $resp['sizes'][$size] = $size . '-' . $count;
         }
+        ksort( $resp['sizes'] );
         $resp['sizes'] = implode( '/', $resp['sizes'] );
+
+        foreach( $resp['times'] as $time => $count )
+        {
+            $resp['times'][$time] = $time . '-' . $count;
+        }
+        ksort( $resp['times'] );
+        $resp['times'] = implode( '/', $resp['times'] );
 
         foreach( $resp as $key => $val )
         {
@@ -505,8 +533,11 @@ class eZAB
             'begin' => -1, // secs (float)
             'end' => 0.0, // secs (float)
             'sizes' => array(), // index: size in bytes, value: nr. of responses received with that size
-
-            'rps' => 0.0
+            'times' => array(), // index: time in msec (int), value: nr. of responses received with that time
+            'rps' => 0.0,
+            't_stddev' => 0.0,
+            't_median' => 0, // msec
+            't_percentiles' => array()
         );
 
         $succesful = 0;
@@ -548,9 +579,45 @@ class eZAB
                 list( $size, $count ) = explode( '-', $size, 2 );
                 $resp['sizes'][$size] = @$resp['sizes'][$size] + $count;
             }
+            foreach( explode( '/', $data['times'] ) as $time )
+            {
+                list( $time, $count ) = explode( '-', $time, 2 );
+                $resp['times'][$time] = @$resp['times'][$time] + $count;
+            }
 
             $succesful += ( $data['tries'] - $data['failures'] );
             $combinedtime += $data['tot_time'];
+        }
+
+        if ( $succesful )
+        {
+            $resp['t_avg'] = $combinedtime / $succesful;
+        }
+
+        // median+percentile+standard deviation calculations
+        ksort( $resp['times'] );
+        $tot = 0;
+        $stddev = 0;
+        $percents = array( 1, 0.99, 0.98, 0.95, 0.9, 0.8, 0.75, 0.66, 0.5 );
+        $percent = array_pop( $percents );
+        foreach( $resp['times'] as $time => $count )
+        {
+            $tot += $count;
+            $stddev += ( pow( $time - $resp['t_avg'], 2 ) * $count );
+            while ( $tot >= ( $succesful * $percent ) && count( $percents ) )
+            {
+                $perc = $percent * 100;
+                $resp['t_percentiles'][$perc] = $time;
+                $percent = array_pop( $percents );
+            }
+        }
+        $resp['t_median'] =  $resp['t_percentiles'][50];
+        $resp['t_stdddev'] = sqrt( $stddev / $tot );
+
+        // double-check for coherence the data
+        if ( $succesful != $tot )
+        {
+            die( "wtf? $succesful != $tot" );
         }
 
         $resp['tot_time'] = $resp['end'] - $resp['begin'];
@@ -558,10 +625,7 @@ class eZAB
         {
             $resp['rps'] = $resp['tries'] / $resp['tot_time'];
         }
-        if ( $succesful )
-        {
-            $resp['t_avg'] = $combinedtime / $succesful;
-        }
+
 
         return $resp;
     }
