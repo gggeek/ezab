@@ -4,3 +4,6 @@ build
 dist
 pakefile.php
 test_logs
+ezab.bat
+ezmyreplay.bat
+*.log
