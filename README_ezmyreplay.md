@@ -44,6 +44,8 @@ Notes:
 . when comparing performance across many benchmarking sessions, make sure that the
   database contents are identical. It is a good idea to dump the db at the beginning
   and reimport it before each benchmarking session
+. the full query log is loaded in memory by the php script. If the log is too big,
+  the php memory limit might be reached. Increase memory_limit in php.ini if so
 
 
 Synopsis, options
@@ -87,3 +89,8 @@ The number of processes forked depends on the "-c" parameter.
 The main process waits for all chidren to terminate execution, collects their
 metrics, aggregates them and displays the result.
 To debug execution of the program if anything goes wrong, run it at verbosity level 4 (option: -v 4)
+
+The sql log to be replayed is parsed once, and saved to a temporary file in json format.
+If your log takes a long time in parsing, you can make the benchmarking process
+faster by saving it in parsed form, using the "--dump" option, and later load
+it by using "--format json"

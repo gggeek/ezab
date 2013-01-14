@@ -14,10 +14,11 @@
  * your app and use it as a plain php class, by defining the EZMYREPLAY_AS_LIB constant
  * before including this file.
  *
- * @todo add comparison with existing slow log data (times, rows number) + display it
- * @todo add parsing of options from query string
- * @todo support not entering password on cli
+ * @todo add parsing of options from query string for web access
+ * @todo support not entering password on cli + hide it from process list
+ * @todo allow to replay only 1 user session if there are many in the mysql slow log
  * @todo add support for mysql, pdo libraries
+ * @todo at high debug levels print mysql error messages
  */
 
 if ( !defined( 'EZMYREPLAY_AS_LIB' ) )
@@ -318,7 +319,7 @@ class eZMyReplay
 
         $this->echoMsg( "\nSummary:\n----------------------------------------\n", 2 );
 
-        $hasmeta = false;
+        $hasmeta = $data['rows_expected'] !== false;
 
         $pcs = '';
         if ( !$opts['skippercentiles'] )
@@ -335,24 +336,23 @@ class eZMyReplay
             " 100% " . sprintf( '%6u', $data['t_max'] * 1000 ) . " (longest request)";
         }
 
+        $details = '';
+        foreach( array( 'SELECT', 'INSERT', 'UPDATE', 'DELETE', 'REPLACE', 'DROP', 'OTHER' ) as $type )
+        {
+            $details .= str_pad( $type . 's', 9 ) . ": {$data['queries'][$type]} queries" . ( $hasmeta ? "(" . $data['meta'][$type]['faster'] . " faster, " . $data['meta'][$type]['slower'] . " slower)\n" : "\n" );
+        }
         $this->echoMsg(
             "Detailed Report\n" .
             "----------------\n" .
-            "SELECTs  : {$data['queries']['SELECT']} queries" . ( $hasmeta ? "(0 faster, 0 slower)\n" : "\n" ) .
-            "INSERTs  : {$data['queries']['INSERT']} queries" . ( $hasmeta ? "(0 faster, 0 slower)\n" : "\n" ) .
-            "UPDATEs  : {$data['queries']['UPDATE']} queries" . ( $hasmeta ? "(0 faster, 0 slower)\n" : "\n" ) .
-            "DELETEs  : {$data['queries']['DELETE']} queries" . ( $hasmeta ? "(0 faster, 0 slower)\n" : "\n" ) .
-            "REPLACEs : {$data['queries']['REPLACE']} queries" . ( $hasmeta ? "(0 faster, 0 slower)\n" : "\n" ) .
-            "DROPs    : {$data['queries']['DROP']} queries" . ( $hasmeta ? "(0 faster, 0 slower)\n" : "\n" ) .
-            "OTHERs   : {$data['queries']['OTHER']} queries" . ( $hasmeta ? "(0 faster, 0 slower)\n" : "\n" ) .
+            $details .
             "\nReport\n" .
             "------\n" .
             "Executed {$data['tries']} queries\n" .
-            "Spent " . gmstrftime( '%H:%M:%S', (int)$data['tot_time'] ) . substr( strstr( $data['tot_time'], '.' ), 0, 7 ) . " executing queries" . ( $hasmeta ? "versus an expected XX time.\n" : "\n" ) .
-            ( $hasmeta ? "XX queries were quicker than expected, XX were slower\n" : "" ) .
+            "Spent " . gmstrftime( '%H:%M:%S', (int)$data['tot_time'] ) . substr( strstr( $data['tot_time'], '.' ), 0, 7 ) . " executing queries\n" //. ( $hasmeta ? " versus an expected XX time.\n" : "\n" ) .
+            ( $hasmeta ? "{$data['meta']['faster']} queries were quicker than expected, {$data['meta']['slower']} were slower\n" : "" ) .
             "A total of {$data['failures']} queries had errors.\n" .
-            ( $hasmeta ? "Expected XX rows, got {$data['tot_rows']} (a difference of XX)\n" : "" ) .
-            ( $hasmeta ? "Number of queries where number of rows differed: XX.\n" : "" ) .
+            ( $hasmeta ? "Expected {$data['rows_expected']} rows, got {$data['tot_rows']} (a difference of " . ( $data['rows_expected'] - $data['tot_rows'] ) . ")\n" : "" ) .
+            ( $hasmeta ? "Number of queries where number of rows differed: {$data['rows_differ_queries']}.\n" : "" ) .
 
             "\nAverage of " . sprintf( '%.2f', $data['tries'] / $opts['children'] )." queries per connection ({$opts['children']} connections).\n" .
 
@@ -373,7 +373,6 @@ class eZMyReplay
     * Executes the sql queries, returns a csv string with the collected data
     * @return string
     *
-    * @todo compare queries with historical data
     * @todo add support for pdo, mysql
     */
     public function runChild()
@@ -411,7 +410,17 @@ class eZMyReplay
                 'DELETE' => 0,
                 'REPLACE' => 0,
                 'DROP' => 0,
-                'OTHER' => 0 )
+                'OTHER' => 0 ),
+            'rows_expected' => null, // NB: we later check for null != 0
+            'rows_differ_queries' => 0,
+            'meta' => array(
+                'SELECT' => array( 'faster' => 0, 'slower' => 0 ),
+                'INSERT' => array( 'faster' => 0, 'slower' => 0 ),
+                'UPDATE' => array( 'faster' => 0, 'slower' => 0 ),
+                'DELETE' => array( 'faster' => 0, 'slower' => 0 ),
+                'REPLACE' => array( 'faster' => 0, 'slower' => 0 ),
+                'DROP' => array( 'faster' => 0, 'slower' => 0 ),
+                'OTHER' => array( 'faster' => 0, 'slower' => 0 ) )
         );
 
         for ( $i = 0; $i < $opts['tries']; $i++ )
@@ -503,7 +512,26 @@ class eZMyReplay
                         if ( isset( $stmt['meta'] ) )
                         {
                             // compare with "older run" data
-                            /// @todo !!!
+                            if ( isset( $stmt['meta']['rows_sent'] ) )
+                            {
+                                $resp['rows_expected'] += $stmt['meta']['rows_sent'];
+                            }
+                            if ( $stmt['meta']['rows_sent'] != $fetched )
+                            {
+                                $resp['rows_differ_queries']++;
+                            }
+                            if ( isset( $stmt['meta']['query_time'] ) )
+                            {
+                                /// truncate a bit?
+                                if ( $stmt['meta']['query_time'] > $time )
+                                {
+                                    $resp['meta'][$type]['faster']++;
+                                }
+                                else if ( $stmt['meta']['query_time'] < $time )
+                                {
+                                    $resp['meta'][$type]['slower']++;
+                                }
+                            }
                         }
                     }
 
@@ -550,6 +578,12 @@ class eZMyReplay
             $resp['queries'][$type] = $type . '-' . $count;
         }
         $resp['queries'] = implode( '/', $resp['queries'] );
+
+        foreach( $resp['meta'] as $type => $count )
+        {
+            $resp['meta'][$type] = $type . '-' . $count['faster'] . '-' . $count['slower'];
+        }
+        $resp['meta'] = implode( '/', $resp['meta'] );
 
         foreach( $resp as $key => $val )
         {
@@ -656,10 +690,10 @@ class eZMyReplay
             't_avg' => 0,
             'begin' => -1, // secs (float)
             'end' => 0.0, // secs (float)
-            'rows' => array(), // index: gotten rows, value: nr. of responses received with that many
+            'rows' => array(), // index: gotten rows, value: nr. of responses received with that many rows
             'tot_rows' => 0,
-            'times' => array(), // index: execution time (ms), value: nr. queries taking
-            'queries' => array(
+            'times' => array(), // index: execution time (ms), value: nr. queries taking that time to execute
+            'queries' => array( // nr. of queries by type
                 'SELECT' => 0,
                 'INSERT' => 0,
                 'UPDATE' => 0,
@@ -667,6 +701,18 @@ class eZMyReplay
                 'REPLACE' => 0,
                 'DROP' => 0,
                 'OTHER' => 0 ),
+            'rows_expected' => null, // NB: we later check for null != 0
+            'rows_differ_queries' => 0,
+            'meta' => array( // comparison with original times from slow query log
+                'SELECT' => array( 'faster' => 0, 'slower' => 0 ),
+                'INSERT' => array( 'faster' => 0, 'slower' => 0 ),
+                'UPDATE' => array( 'faster' => 0, 'slower' => 0 ),
+                'DELETE' => array( 'faster' => 0, 'slower' => 0 ),
+                'REPLACE' => array( 'faster' => 0, 'slower' => 0 ),
+                'DROP' => array( 'faster' => 0, 'slower' => 0 ),
+                'OTHER' => array( 'faster' => 0, 'slower' => 0 ),
+                'faster' => 0, 'slower' => 0 ),
+            // calculated data
             'rps' => 0.0,
             't_stddev' => 0.0,
             't_median' => 0, // msec
@@ -704,6 +750,19 @@ class eZMyReplay
                 $resp['t_max'] = $data['t_max'];
             }
             $resp['tot_rows'] += $data['tot_rows'];
+            if ( $data['rows_expected'] !== null )
+            {
+                $resp['rows_expected'] += $data['rows_expected'];
+                $resp['rows_differ_queries'] += $data['rows_differ_queries'];
+                foreach( explode( '/', $data['meta'] ) as $exp )
+                {
+                    list( $type, $faster, $slower ) = explode( '-', $exp, 3 );
+                    $resp['meta'][$type]['faster'] += $faster;
+                    $resp['meta']['faster'] += $faster;
+                    $resp['meta'][$type]['slower'] += $slower;
+                    $resp['meta']['slower'] += $slower;
+                }
+            }
             foreach( explode( '/', $data['rows'] ) as $size )
             {
                 list( $size, $count ) = explode( '-', $size, 2 );
