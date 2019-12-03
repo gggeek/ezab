@@ -5,7 +5,7 @@ This is a tool for benchmarking MySql database servers.
 It is designed to give you an impression of how your current database server
 installation performs, by repeatedly executing - with many parallel threads - a
 series of queries taken from a file.
-There is no need to have a spoecific database schema or data-set installed.
+There is no need to have a specific database schema or data-set installed.
 It is inspired by the percona-playback tool from Percona.
 
 
@@ -63,7 +63,7 @@ To get a full list of supported options run the script using the -h option:
 
 Notes:
 . you can omit from command line arguments to specify the database to use if there
-  are USE statements in your sql log. Viceversa USE statements in your sql log
+  are USE statements in your sql log. Vice-versa USE statements in your sql log
   will be ignored if you specify on the command line  a database to be used
 
 
@@ -86,7 +86,7 @@ Under the hood
 Whatever way you choose to run the program, what happens is that the php script will
 execute more copies of itself, each of which will send some requests to the server.
 The number of processes forked depends on the "-c" parameter.
-The main process waits for all chidren to terminate execution, collects their
+The main process waits for all children to terminate execution, collects their
 metrics, aggregates them and displays the result.
 To debug execution of the program if anything goes wrong, run it at verbosity level 4 (option: -v 4)
 

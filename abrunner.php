@@ -9,7 +9,7 @@
  *
  * @author G. Giunta
  * @license GNU GPL 2.0
- * @copyright (C) G. Giunta 2012
+ * @copyright (C) G. Giunta 2012-2019
  *
  * @todo add more cli options: verbosity
  * @todo AB only does http 1.0 requests; it would be nice to use siege, which can do http 1.1 - workaround: use ezab.php
@@ -28,14 +28,14 @@ if ( !defined( 'ABRUNNER_AS_LIB' ) )
     {
         die( "Sorry, web interface not yet developed..." );
         // parse options in array format (die with help msg if needed)
-        $ab->parseOpts( $_GET );
+        //$ab->parseOpts( $_GET );
     }
     $ab->run();
 }
 
 class ABRunner
 {
-    static $version = '0.1-dev';
+    static $version = '0.1';
     static $defaults = array(
         // 'real' options
         'label' => '',
@@ -75,13 +75,15 @@ class ABRunner
     /**
      * Actual execution of the test
      * Depending on options, calls runTests or echoes help messages
+     * @throws Exception
      */
     public function run()
     {
         switch ( $this->opts['command'] )
         {
             case 'runtests':
-                return $this->runTests();
+                $this->runTests();
+                return;
             case 'versionmsg':
                 echo $this->versionMsg();
                 break;
@@ -89,15 +91,18 @@ class ABRunner
                 echo $this->helpMsg();
                 break;
             default:
-                $this->abort( 1 , 'Unkown running mode: ' . $this->opts['command'] );
+                $this->abort( 1 , 'Unknown running mode: ' . $this->opts['command'] );
         }
     }
 
+    /**
+     * @throws Exception
+     */
     public function runTests()
     {
         $opts = $this->opts;
 
-        $outfile = $opts['output_dir'] . '/' . $opts['summary_file'];
+        //$outfile = $opts['output_dir'] . '/' . $opts['summary_file'];
         if ( !is_dir( $opts['output_dir'] ) )
         {
             mkdir( $opts['output_dir'] ) || $this->abort( 1, "can not create directory for output: {$opts['output_dir']}" );
@@ -295,9 +300,13 @@ class ABRunner
         }
     }
 
+    /**
+     * @param string $ab
+     * @return string
+     * @throws Exception
+     */
     protected function getABExecutable( $ab='ab' )
     {
-        $validExecutable = false;
         do
         {
             $output = array();
@@ -324,7 +333,8 @@ class ABRunner
     /**
      * Parses args in argc/argv format (stores them, unless -h or -V are found, in which case only $this->opts['self'] is set)
      * If any unknown option is found, prints help msg and exit.
-     * Nb: pre-existing otions are not reset by this call.
+     * Nb: pre-existing options are not reset by this call.
+     * @throws Exception
      */
     public function parseArgs( $argv )
     {
@@ -532,7 +542,7 @@ class ABRunner
         if ( $this->opts['outputformat'] == 'html' && !$forceplaintext )
             $out .= '<pre>';
         $out .=  "This is ABRunner, Version " . self::$version . "\n";
-        $out .= "Copyright 2012 G. Giunta, eZ Systems, http://ez.no\n";
+        $out .= "Copyright 2012-2019 G. Giunta, eZ Systems, http://ez.no\n";
         if ( $this->opts['outputformat'] == 'html' && !$forceplaintext )
             $out .= '</pre>';
         return $out;
@@ -540,7 +550,7 @@ class ABRunner
 
     /**
      * Either exits or throws an exception
-     *
+     * @throws Exception
      * @todo !important when in web mode, there is little sign that there was an error...
      */
     protected function abort( $errcode=1, $msg='' )

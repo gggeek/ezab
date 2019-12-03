@@ -1,0 +1,11 @@
+{
+    "name": "gggeek/ezab",
+    "description": "A suite of tools for benchmarking (load testing) web servers and databases",
+    "keywords": ["automation", "build", "task"],
+    "license": "GPL-2.0",
+    "require": {
+        "php": ">=5",
+        "ext-curl": "*"
+    },
+    "bin": ["abrunner.php", "ezab.php", "ezmyreplay.php"]
+}

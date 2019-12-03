@@ -47,10 +47,10 @@ Some features of the original AB are still missing, such as POST/PUT support, et
 The output of the tool is also lacking.
 Instead of having the list of things that do work in the docs, it is suggested to run the script with the -h option.
 
-On the other hand, there are already a couple of fetaures that we do better than the original:
+On the other hand, there are already a couple of features that we do better than the original:
 1. support for http 1.1 by default. AB uses http 1.0, but most of the web in 2012 runs on version 1.1.
    This means that the numbers you get should be closer to "real life traffic"
-2. better support for keepalives (AB can only do http/1.0 keepalives, which Apache does not support when running dynamic page generators such as php)
+2. better support for keep-alives (AB can only do http/1.0 keepalives, which Apache does not support when running dynamic page generators such as php)
 3. easy support for compressed http responses (using the -j option)
 
 
@@ -60,6 +60,6 @@ Under the hood
 Whatever way you choose to run the program, what happens is that the php script will
 execute more copies of itself, each of which will send some requests to the server.
 The number of processes forked depends on the "-c" parameter.
-The main process waits for all chidren to terminate execution, collects their
+The main process waits for all children to terminate execution, collects their
 metrics, aggregates them and displays the result.
 To debug execution of the program if anything goes wrong, run it at verbosity level 4 (option: -v 4)

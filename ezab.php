@@ -4,7 +4,7 @@
  *
  * @author G. Giunta
  * @license GNU GPL 2.0
- * @copyright (C) G. Giunta 2010-2012
+ * @copyright (C) G. Giunta 2010-2019
  *
  * It uses curl for executing the http requests.
  * It uses a multi-process scheme (tested to be working both on windows and linux):
@@ -27,7 +27,7 @@
 
 if ( !defined( 'EZAB_AS_LIB' ) )
 {
-    if( !function_exists( 'curl_init' ) )
+    if ( !function_exists( 'curl_init' ) )
     {
         echo( 'Missing cURL, cannot run' );
         exit( 1 );
@@ -50,7 +50,7 @@ if ( !defined( 'EZAB_AS_LIB' ) )
 
 class eZAB
 {
-    static $version = '0.3-dev';
+    static $version = '0.3';
     static $defaults = array(
         // 'real' options
         /// How much troubleshooting info to print. According to ab docs:
@@ -58,8 +58,8 @@ class eZAB
         /// Real life testing seem to tell a different story though...
         'verbosity' => 1, // -v verbosity
         'children' => 1, // -c concurrency  Number of multiple requests to make
-        'tries' => 1, // -n requests     Number of requests to perform
-        'timeout' => 0, // -t timelimit    Seconds to max. wait for responses
+        'tries' => 1, // -n requests        Number of requests to perform
+        'timeout' => 0, // -t timelimit     Seconds to max. wait for responses
         'auth' => false,
         'proxy' => false,
         'proxyauth' => false,
@@ -97,6 +97,7 @@ class eZAB
     /**
      * Actual execution of the test, echoes results to stdout.
      * Depending on options, calls runParent or runChild, or echoes help messages
+     * @throws Exception
      */
     public function run()
     {
@@ -114,7 +115,7 @@ class eZAB
                 echo $this->helpMsg();
                 break;
             default:
-                $this->abort( 1 , 'Unkown running mode: ' . $this->opts['command'] );
+                $this->abort( 1 , 'Unknown running mode: ' . $this->opts['command'] );
         }
     }
 
@@ -122,6 +123,7 @@ class eZAB
      * Runs the test, prints results (unless verbosity option has been set to 0).
      * Note: sets a value to $this->opts['parentid'], too
      * @return array
+     * @throws Exception
      */
     public function runParent()
     {
@@ -207,7 +209,7 @@ class eZAB
         //$starttimes = array();
         $pipes = array();
         $childprocs = array();
-        $childresults = array();
+        //$childresults = array();
 
         //$time = microtime( true );
 
@@ -241,7 +243,7 @@ class eZAB
         // wait for all children to finish
         /// @todo add a global timeout limit?
         $finished = 0;
-        $outputs = array();
+        //$outputs = array();
         do
         {
             /// @todo !important lower this - use usleep
@@ -423,7 +425,7 @@ class eZAB
         if ( $curl )
         {
             curl_setopt( $curl, CURLOPT_RETURNTRANSFER, true );
-            // enbale receiving header too. We will need later to split by ourselves headers from body to calculate correct sizes
+            // enable receiving header too. We will need later to split by ourselves headers from body to calculate correct sizes
             curl_setopt( $curl, CURLOPT_HEADER, true );
             curl_setopt( $curl, CURLOPT_USERAGENT, "eZAB " . self::$version );
             if ( $opts['timeout'] > 0 )
@@ -578,7 +580,7 @@ class eZAB
     }
 
     /**
-     * Parse the ouput of children processes and calculate global stats
+     * Parse the output of children processes and calculate global stats
      */
     protected function parseOutputs( $outputs )
     {
@@ -692,9 +694,13 @@ class eZAB
         return $resp;
     }
 
+    /**
+     * @param string $php
+     * @return string
+     * @throws Exception
+     */
     protected function getPHPExecutable( $php='php' )
     {
-        $validExecutable = false;
         do
         {
             $output = array();
@@ -721,7 +727,8 @@ class eZAB
     /**
      * Parses args in argc/argv format (stores them, unless -h or -V are found, in which case only $this->opts['self'] is set)
      * If any unknown option is found, prints help msg and exit.
-     * Nb: pre-existing otions are not reset by this call.
+     * Nb: pre-existing options are not reset by this call.
+     * @throws Exception
      */
     public function parseArgs( $argv )
     {
@@ -812,10 +819,10 @@ class eZAB
                         $opts['childnr'] = (int)$val;
                         $opts['command'] = 'runchild';
                         break;
-                   case 'i':
+                    case 'i':
                         $opts['head'] = true;
                         break;
-                   case 'j':
+                    case 'j':
                         $opts['respencoding'] = true;
                         break;
                     case 'k':
@@ -1037,7 +1044,7 @@ class eZAB
         if ( $this->opts['outputformat'] == 'html' )
             $out .= '<pre>';
         $out .=  "This is eZAB, Version " . self::$version . "\n";
-        $out .= "Copyright 2010-2012 G. Giunta, eZ Systems, http://ez.no\n";
+        $out .= "Copyright 2010-2019 G. Giunta, eZ Systems, http://ez.no\n";
         if ( $this->opts['outputformat'] == 'html' )
             $out .= '</pre>';
         return $out;
@@ -1045,7 +1052,7 @@ class eZAB
 
     /**
      * Either exits or throws an exception
-     *
+     * @throws Exception
      * @todo !important when in web mode, there is little sign that there was an error...
      */
     protected function abort( $errcode=1, $msg='' )
@@ -1074,5 +1081,3 @@ class eZAB
         }
     }
 }
-
-?>

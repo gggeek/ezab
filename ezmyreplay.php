@@ -5,7 +5,7 @@
  *
  * @author G. Giunta
  * @license GNU GPL 2.0
- * @copyright (C) G. Giunta 2012
+ * @copyright (C) G. Giunta 2012-2019
  *
  * It uses a multi-process scheme (tested to be working both on windows and linux):
  * you will need php-cli installed for this to work.
@@ -46,7 +46,7 @@ if ( !defined( 'EZMYREPLAY_AS_LIB' ) )
 
 class eZMyReplay
 {
-    static $version = '0.1-dev';
+    static $version = '0.1';
     static $defaults = array(
         // 'real' options
         'verbosity' => 1, // -v verbosity    How much troubleshooting info to print
@@ -97,6 +97,7 @@ class eZMyReplay
     /**
      * Actual execution of the test, echoes results to stdout.
      * Depending on options, calls runParent or runChild, or echoes help messages
+     * @throws Exception
      */
     public function run()
     {
@@ -125,6 +126,7 @@ class eZMyReplay
      * Runs the test, prints results (unless verbosity option has been set to 0).
      * Note: sets a value to $this->opts['parentid'], too
      * @return array
+     * @throws Exception
      */
     public function runParent( $only_return_parsed=false )
     {
@@ -212,7 +214,7 @@ class eZMyReplay
         //$starttimes = array();
         $pipes = array();
         $childprocs = array();
-        $childresults = array();
+        //$childresults = array();
 
         //$time = microtime( true );
 
@@ -247,7 +249,7 @@ class eZMyReplay
         // wait for all children to finish
         /// @todo add a global timeout limit?
         $finished = 0;
-        $outputs = array();
+        //$outputs = array();
         do
         {
             /// @todo !important lower this - use usleep
@@ -348,7 +350,7 @@ class eZMyReplay
             "\nReport\n" .
             "------\n" .
             "Executed {$data['tries']} queries\n" .
-            "Spent " . gmstrftime( '%H:%M:%S', (int)$data['tot_time'] ) . substr( strstr( $data['tot_time'], '.' ), 0, 7 ) . " executing queries\n" //. ( $hasmeta ? " versus an expected XX time.\n" : "\n" ) .
+            "Spent " . gmstrftime( '%H:%M:%S', (int)$data['tot_time'] ) . substr( strstr( $data['tot_time'], '.' ), 0, 7 ) . " executing queries\n" . //. ( $hasmeta ? " versus an expected XX time.\n" : "\n" ) .
             ( $hasmeta ? "{$data['meta']['faster']} queries were quicker than expected, {$data['meta']['slower']} were slower\n" : "" ) .
             "A total of {$data['failures']} queries had errors.\n" .
             ( $hasmeta ? "Expected {$data['rows_expected']} rows, got {$data['tot_rows']} (a difference of " . ( $data['rows_expected'] - $data['tot_rows'] ) . ")\n" : "" ) .
@@ -372,7 +374,7 @@ class eZMyReplay
     /**
     * Executes the sql queries, returns a csv string with the collected data
     * @return string
-    *
+    * @throws Exception
     * @todo add support for pdo, mysql
     */
     public function runChild()
@@ -455,7 +457,7 @@ class eZMyReplay
                         $fetched = 0;
                         $start = microtime( true );
                         $res = $my->query( $stmt['sql'] );
-                        $ar = $my->affected_rows;
+                        //$ar = $my->affected_rows;
                         if ( is_object( $res ) )
                         {
                             // we get all data line by line, not to exhaust php memory by fetching all in 1 array
@@ -817,9 +819,14 @@ class eZMyReplay
         return $resp;
     }
 
+    /**
+     * @param string $php
+     * @return string
+     * @throws Exception
+     */
     protected function getPHPExecutable( $php='php' )
     {
-        $validExecutable = false;
+        //$validExecutable = false;
         do
         {
             $output = array();
@@ -847,6 +854,7 @@ class eZMyReplay
      * Parses args in argc/argv format (stores them, unless -h or -V are found, in which case only $this->opts['self'] is set)
      * If any unknown option is found, prints help msg and exit.
      * Nb: pre-existing otions are not reset by this call.
+     * @throws Exception
      */
     public function parseArgs( $argv )
     {
@@ -1139,7 +1147,7 @@ class eZMyReplay
 
     protected function copyrightMsg()
     {
-        $out = "Copyright (C) 2012 by G. Giunta, eZ Systems, http://ez.no\n";
+        $out = "Copyright (C) 2012-2019 by G. Giunta, eZ Systems, http://ez.no\n";
         $out .= "This is free software; see the source for copying conditions.\n";
         $out .= "There is NO warranty; not even for MERCHANTABILITY or FITNESS\n";
         $out .= "FOR A PARTICULAR PURPOSE.";
@@ -1148,7 +1156,7 @@ class eZMyReplay
 
     /**
      * Either exits or throws an exception
-     *
+     * @throws Exception
      * @todo !important when in web mode, there is little sign that there was an error...
      */
     protected function abort( $errcode=1, $msg='' )
@@ -1177,5 +1185,3 @@ class eZMyReplay
         }
     }
 }
-
-?>
