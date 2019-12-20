@@ -15,5 +15,3 @@ $ab = new eZAB( array(
 $results = $ab->run();
 
 echo "Requests per second: " . $results['summary_data']['rps'];
-
-?>
