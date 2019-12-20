@@ -1,9 +1,10 @@
-*.PHPEditProject
-*.bak
-build
-dist
-pakefile.php
-test_logs
+/.idea
+/build
+/dist
+
+abrunner.bat
 ezab.bat
 ezmyreplay.bat
+
+*.bak
 *.log
