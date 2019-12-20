@@ -64,7 +64,7 @@ class ABRunner
     // command-line switches to ab that we cannot let the user pass on by himself
     static $ignoredabargs = array( 'n', 'c', 'v', 'w', 'V', 'd', 's', 'g', 'h' );
 
-    function __construct( $opts = array() )
+    public function __construct( $opts = array() )
     {
         $this->opts = self::$defaults;
         $this->opts['outputformat'] = ( php_sapi_name() == 'cli' ) ? 'text' : 'html';
@@ -495,7 +495,7 @@ class ABRunner
     }
 
     /// @todo show different format for help when running from the web
-    function helpMsg( $cmd='' )
+    public function helpMsg( $cmd='' )
     {
         if ( $cmd == '' )
         {
@@ -522,7 +522,7 @@ class ABRunner
         $out .= "    {$d}w seconds       The time to wait between each run. Defaults to 1\n";
         $out .= "    {$d}l label         Use a label for this test run. Will be used as prefix for all output filenames except summary\n";
         $out .= "    {$d}m summary_file  Name for summary file. Defaults to summary.txt\n";
-        $out .= "    {$d}d output_dir    Name for ouput dir. Defaults to test_logs\n";
+        $out .= "    {$d}d output_dir    Name for output dir. Defaults to test_logs\n";
         $out .= "    {$d}g               Save gnuplot detail files too (allows graphing results of every ab invocation)\n";
         $out .= "    {$d}a               Save aggregate results in a csv file (one per url)\n";
         $out .= "    {$d}ab path/to/ab   Path to ApacheBench\n";
@@ -536,13 +536,13 @@ class ABRunner
         return $out;
     }
 
-    function versionMsg( $forceplaintext=false )
+    public function versionMsg( $forceplaintext=false )
     {
         $out = '';
         if ( $this->opts['outputformat'] == 'html' && !$forceplaintext )
             $out .= '<pre>';
         $out .=  "This is ABRunner, Version " . self::$version . "\n";
-        $out .= "Copyright 2012-2019 G. Giunta, eZ Systems, http://ez.no\n";
+        $out .= "Copyright 2012-2019 G. Giunta\n";
         if ( $this->opts['outputformat'] == 'html' && !$forceplaintext )
             $out .= '</pre>';
         return $out;
@@ -579,5 +579,3 @@ class ABRunner
         }
     }
 }
-
-?>

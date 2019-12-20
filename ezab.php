@@ -19,7 +19,7 @@
  * @todo parse more stats from children (same format as ab does), eg. print connect times, nr. of keepalives etc...
  * @todo check if all our calculation methods are the same as used by ab
  * @todo add some nice graph output, as eg. abgraph does
- * @todo !important add named constants for verbosity levels; review what is ouput at each level (currently used: 1 to 4)
+ * @todo !important add named constants for verbosity levels; review what is output at each level (currently used: 1 to 4)
  * @todo !important add an option for a custom dir for traces/logfiles
  * @todo !important raise php timeout if run() is called not from cli
  * @todo !important in web mode, display a form to be filled by user that triggers the request
@@ -86,7 +86,7 @@ class eZAB
     // config options for this instance
     protected $opts = array();
 
-    function __construct( $opts = array() )
+    public function __construct( $opts = array() )
     {
         $this->opts = self::$defaults;
         $this->opts['outputformat'] = ( php_sapi_name() == 'cli' ) ? 'text' : 'html';
@@ -709,7 +709,7 @@ class eZAB
             {
                 return $php;
             }
-            if ( php_sapi_name() == 'cli' )
+            if ( php_sapi_name() == 'cli' && function_exists( 'readline' ) )
             {
                 $input = readline( 'Enter path to PHP-CLI executable ( or [q] to quit )' );
                 if ( $input === 'q' )
@@ -987,7 +987,7 @@ class eZAB
     }
 
     /// @todo show different format for help when running from the web
-    function helpMsg( $cmd='' )
+    public function helpMsg( $cmd='' )
     {
         if ( $cmd == '' )
         {
@@ -1038,13 +1038,13 @@ class eZAB
         return $out;
     }
 
-    function versionMsg()
+    public function versionMsg()
     {
         $out = '';
         if ( $this->opts['outputformat'] == 'html' )
             $out .= '<pre>';
         $out .=  "This is eZAB, Version " . self::$version . "\n";
-        $out .= "Copyright 2010-2019 G. Giunta, eZ Systems, http://ez.no\n";
+        $out .= "Copyright 2010-2019 G. Giunta\n";
         if ( $this->opts['outputformat'] == 'html' )
             $out .= '</pre>';
         return $out;

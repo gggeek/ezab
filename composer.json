@@ -7,5 +7,10 @@
         "php": ">=5",
         "ext-curl": "*"
     },
+    "suggest": {
+        "ext-json": "required for ezmyreplay",
+        "ext-mysqli": "required for ezmyreplay",
+        "ext-readline": "used for interactive behaviour by the cli scripts"
+    },
     "bin": ["abrunner.php", "ezab.php", "ezmyreplay.php"]
 }

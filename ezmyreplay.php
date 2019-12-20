@@ -86,7 +86,7 @@ class eZMyReplay
     // config options for this instance
     protected $opts = array();
 
-    function __construct( $opts = array() )
+    public function __construct( $opts = array() )
     {
         $this->opts = self::$defaults;
         $this->opts['outputformat'] = ( php_sapi_name() == 'cli' ) ? 'text' : 'html';
@@ -679,7 +679,7 @@ class eZMyReplay
     }
 
     /**
-     * Parse the ouput of children processes and calculate global stats
+     * Parse the output of children processes and calculate global stats
      */
     protected function parseOutputs( $outputs )
     {
@@ -835,7 +835,7 @@ class eZMyReplay
             {
                 return $php;
             }
-            if ( php_sapi_name() == 'cli' )
+            if ( php_sapi_name() == 'cli' && function_exists( 'readline' ) )
             {
                 $input = readline( 'Enter path to PHP-CLI executable ( or [q] to quit )' );
                 if ( $input === 'q' )
@@ -1083,7 +1083,7 @@ class eZMyReplay
     }
 
     /// @todo show different format for help when running from the web
-    function helpMsg( $cmd='' )
+    public function helpMsg( $cmd='' )
     {
         if ( $cmd == '' )
         {
@@ -1133,7 +1133,7 @@ class eZMyReplay
         return $out;
     }
 
-    function versionMsg()
+    public function versionMsg()
     {
         $out = '';
         if ( $this->opts['outputformat'] == 'html' )
@@ -1147,7 +1147,7 @@ class eZMyReplay
 
     protected function copyrightMsg()
     {
-        $out = "Copyright (C) 2012-2019 by G. Giunta, eZ Systems, http://ez.no\n";
+        $out = "Copyright (C) 2012-2019 by G. Giunta\n";
         $out .= "This is free software; see the source for copying conditions.\n";
         $out .= "There is NO warranty; not even for MERCHANTABILITY or FITNESS\n";
         $out .= "FOR A PARTICULAR PURPOSE.";
