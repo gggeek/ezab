@@ -40,4 +40,9 @@ FAQ
 More info
 ---------
 
-For more information, look at the tool-specific README file: (ezab)[README_ezab.md], (ezmyreplay)[README_ezmyreplay.md]
+For more information, look at the tool-specific README file: [ezab](README_ezab.md), [ezmyreplay](README_ezmyreplay.md)
+
+
+[![License](https://poser.pugx.org/gggeek/ezab/license)](https://packagist.org/packages/gggeek/ezab)
+[![Latest Stable Version](https://poser.pugx.org/gggeek/ezab/v/stable)](https://packagist.org/packages/gggeek/ezab)
+[![Total Downloads](https://poser.pugx.org/gggeek/ezab/downloads)](https://packagist.org/packages/gggeek/ezab)
