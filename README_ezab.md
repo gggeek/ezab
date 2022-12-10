@@ -11,7 +11,7 @@ and in output format.
 Requirements
 ------------
 
-- php version 5
+- php version 5 or later
 - ability to run php from the command line (for linux this often means installing the php-cli package)
 - the curl php extension
 
